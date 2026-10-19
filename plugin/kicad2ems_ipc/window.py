@@ -258,6 +258,10 @@ class Window(QMainWindow):
         self.resize(1400, 860)
         self.timer = QTimer(self)
         self.timer.timeout.connect(self._poll_run)
+        self.map_timer = QTimer(self)                   # map chunks come faster than a redraw: one every 0.25 s
+        self.map_timer.setSingleShot(True)
+        self.map_timer.setInterval(250)
+        self.map_timer.timeout.connect(self._show_map)
 
     # ---- the side panel ----
     def _board_box(self):
@@ -560,6 +564,7 @@ class Window(QMainWindow):
                 self.loader.wait()
             self.loader = Loader(None, None, plan=self.plan, nets=missing, cache=self._cache_path())
             self.loader.progress.connect(self._mapped)
+            self.loader.finished.connect(self._map_done)
             self.loader.failed.connect(lambda msg: self.map_lab.setText(msg))
             self.loader.start()
         self._show_map()
@@ -574,7 +579,13 @@ class Window(QMainWindow):
             self.store.setdefault(n, [])
         for e in new:
             self.store.setdefault(e.get('net'), []).append(e)
-        self._show_map()
+        if not self.map_timer.isActive():
+            self.map_timer.start()
+
+    def _map_done(self):
+        if self.map_timer.isActive():
+            self.map_timer.stop()
+            self._show_map()
 
     def _show_map(self):
         """The view's map: the stored sections of the visible nets, numbered as the view expects."""

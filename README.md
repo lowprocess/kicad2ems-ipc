@@ -46,6 +46,8 @@ Reinstall after moving kicad2ems to another Python. `kicad2ems-kicad uninstall` 
 
 ## Using it
 
+![The plugin beside KiCad, set up to simulate an HDMI pair](img/readme/kicad_plugin.jpg)
+
 1. Open the board in KiCad's PCB editor and press the kicad2ems button. The window reads the board and maps the
    impedance of every routed signal net, a group of nets at a time; the map fills in as it goes.
 2. Read the map: the layer box switches copper layers. Hover a trace for its numbers; click it to find it in
