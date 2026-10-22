@@ -9,7 +9,7 @@ against the line model's, or the same set-up opened in kicad2ems's GUI.
 import os, sys
 
 from PySide6.QtCore import Qt, QThread, Signal, QTimer, QProcess, QUrl
-from PySide6.QtGui import QPen, QColor, QIcon, QDesktopServices, QLinearGradient, QBrush, QPainter
+from PySide6.QtGui import QColor, QIcon, QDesktopServices, QLinearGradient, QBrush, QPainter
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QLabel,
                                QPushButton, QCheckBox, QDoubleSpinBox, QComboBox, QListWidget, QListWidgetItem,
                                QProgressBar, QSplitter, QScrollArea, QMessageBox, QFormLayout, QTabWidget,
