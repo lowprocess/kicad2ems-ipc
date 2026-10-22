@@ -1,6 +1,6 @@
 """The KiCad plugin: its model (the board from text as KiCad's API gives it, the impedance map, ports, the run's
 settings), its installer (KiCad's plugin schema), and its window offscreen with a stand-in for KiCad."""
-import json, os
+import json, os, sys
 
 import numpy as np
 import pytest
@@ -290,6 +290,95 @@ def test_install_writes_a_valid_plugin(tmp_path):
         jsonschema = pytest.importorskip('jsonschema')
         jsonschema.validate(pj, json.load(open(SCHEMA)))
     assert install.uninstall(dest) and not os.path.exists(dest)
+
+
+def test_live_link_reads_and_selects_through_kipy(monkeypatch):
+    """ipc.Live over a stand-in for kipy's KiCad: the board text, path and stem (with and without a project), net
+    classes (KiCad 9's constituents, else the comma list of the name), the selection's box (items without one
+    skipped) and nets, show_track picking the nearest track of the net on the layer (nm in the API, mm here), and
+    connect's errors saying what to do."""
+    pytest.importorskip('kipy')
+    from types import SimpleNamespace as NS
+    from kipy.proto.board.board_types_pb2 import BoardLayer
+    from kicad2ems.kicadplugin import ipc
+    MM = 1_000_000                                                  # nm
+
+    def track(layer, net, x0, x1, y, w=0.4):
+        return NS(layer=layer, net=NS(name=net), start=NS(x=x0 * MM, y=y * MM), end=NS(x=x1 * MM, y=y * MM),
+                  width=w * MM)
+    rf_a, rf_b = track(BoardLayer.BL_F_Cu, 'RF', 0, 10, 0), track(BoardLayer.BL_F_Cu, 'RF', 0, 10, 2)
+    tracks = [rf_a, rf_b, track(BoardLayer.BL_B_Cu, 'RF', 0, 10, 0), track(BoardLayer.BL_F_Cu, 'GND', 0, 10, 0)]
+    a, b, n = NS(net=NS(name='RF')), NS(net=NS(name='GND')), NS()
+    boxes = {id(a): NS(pos=NS(x=1 * MM, y=2 * MM), size=NS(x=3 * MM, y=1 * MM)),
+             id(b): NS(pos=NS(x=-1 * MM, y=0), size=NS(x=1 * MM, y=1 * MM))}
+
+    class Board:
+        name, selected = 'amp.kicad_pcb', []
+
+        def __init__(self, project):
+            self.project = project
+
+        def get_as_string(self):
+            return '(kicad_pcb)'
+
+        def get_project(self):
+            if self.project is None:
+                raise RuntimeError('no project')
+            return NS(path=self.project)
+
+        def get_nets(self):
+            return ['RF', 'USB_P']
+
+        def get_netclass_for_nets(self, nets):
+            return {'RF': NS(constituents=['50R', ''], name='50R'), 'USB_P': NS(constituents=None, name='USB, 90R')}
+
+        def get_selection(self):
+            return [a, b, n]
+
+        def get_item_bounding_box(self, it):
+            if it is n:
+                raise ValueError('no box')
+            return boxes[id(it)]
+
+        def get_tracks(self):
+            return tracks
+
+        def clear_selection(self):
+            Board.selected = []
+
+        def add_to_selection(self, items):
+            Board.selected = list(items)
+    kicad = NS(get_board=lambda: Board('/work/amp'), get_version=lambda: '9.0.4')
+    live = ipc.Live(kicad)
+    assert live.version() == '9.0.4' and live.board_text() == '(kicad_pcb)' and live.stem() == 'amp'
+    assert live.project_dir() == '/work/amp' and live.board_path() == os.path.join('/work/amp', 'amp.kicad_pcb')
+    assert live.net_classes() == {'RF': ['50R'], 'USB_P': ['USB', '90R']}
+    assert live.selection_box() == pytest.approx((-1.0, 0.0, 4.0, 3.0)) and live.selection_nets() == {'RF', 'GND'}
+    assert live.show_track('F.Cu', 'RF', (2, 1.9), (3, 1.9)) and Board.selected == [rf_b]     # the nearer of two
+    assert not live.show_track('F.Cu', 'RF', (2, 5), (3, 5))                                  # nothing under it
+    assert live.show_track('B.Cu', None, (2, 0), (3, 0)) and Board.selected == [tracks[2]]   # any net
+    live.kicad = NS(get_board=lambda: Board(None))
+    live.refresh()
+    assert live.project_dir() is None and live.board_path() == 'amp.kicad_pcb'
+    assert ipc._seg_dist((5, 5), (0, 0), (0, 0)) == pytest.approx(50 ** 0.5)          # a zero-length segment
+
+    class Refused:
+        def __init__(self, timeout_ms):
+            pass
+
+        def ping(self):
+            raise ConnectionRefusedError('no socket')
+    import kipy
+    monkeypatch.setattr(kipy, 'KiCad', Refused)
+    with pytest.raises(ipc.LinkError, match='Enable KiCad API'):
+        ipc.Live.connect()
+    monkeypatch.setattr(kipy, 'KiCad', type('NoBoard', (Refused,), dict(ping=lambda self: None,
+                                                                         get_board=lambda self: 1 / 0)))
+    with pytest.raises(ipc.LinkError, match='no board open'):
+        ipc.Live.connect()
+    monkeypatch.setitem(sys.modules, 'kipy', None)                  # not installed
+    with pytest.raises(ipc.LinkError, match='pip install kicad-python'):
+        ipc.Live.connect()
 
 
 class FakeLive:
