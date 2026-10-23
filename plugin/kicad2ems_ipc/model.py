@@ -99,7 +99,7 @@ class Plan:
         a time (a net, or a pair's two legs: only a pair couples, so the map does not depend on how nets are
         grouped), over `jobs` worker processes (default: one per performance core; 1: here, in this process).
         A unit at a time was also the fastest: 4.9 s for KiCad's CM5 demo, against 5.8 s in groups of 24 nets."""
-        from ..solvers.lines.tlines import RefCopper
+        from ..lines.tlines import RefCopper
         nets = [n for n in (self.signal if nets is None else nets) if not self.nc.disabled(n)]
         refcu = RefCopper(self.m, set(self.signal) | set(self.disabled))
         self.lines['elements'] = []
@@ -419,7 +419,7 @@ def _drawing(m, lm):
 
 
 def _map_group(m, refcu, chunk):
-    from ..solvers.lines.tlines import build
+    from ..lines.tlines import build
     return _drawing(m, build(m, nets=chunk, refcu=refcu))
 
 

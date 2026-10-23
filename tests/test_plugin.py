@@ -120,7 +120,7 @@ def test_parallel_map_matches_one_process(lowpass):
 
 def test_tiled_planes_give_the_same_map(lowpass):
     """Ray casts against reference copper cut into tiles (tlines.TILE) find what the whole planes give."""
-    import kicad2ems.solvers.lines.tlines as tl
+    import kicad2ems.lines.tlines as tl
     from kicad2ems.kicadplugin.model import Plan
     text, path = _text(lowpass), lowpass
     keep = tl.TILE
