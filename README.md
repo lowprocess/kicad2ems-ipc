@@ -1,12 +1,10 @@
-# KiCad plugin
+# kicad2ems-ipc
 
-[← Index](index.md)
-
-kicad2ems has a plugin for KiCad's PCB editor. It talks to KiCad through KiCad's IPC API (KiCad 9 and later) and
+[kicad2ems](https://github.com/lowprocess/kicad2ems)'s plugin for KiCad's PCB editor. It talks to KiCad through KiCad's IPC API (KiCad 9 and later) and
 reads the board as it is open in KiCad, unsaved edits included. A toolbar button opens a window with:
 
 - **The impedance map:** the board seen from above, every trace coloured by how far its impedance is from its
-  net class's target ([line model](transmission-lines.md) Z0, or Zdiff for a pair; blue below, grey on target,
+  net class's target ([line model](https://github.com/lowprocess/kicad2ems/blob/main/docs/transmission-lines.md) Z0, or Zdiff for a pair; blue below, grey on target,
   red above). Hover a trace to read its cross-section, width, Z0, Zdiff, class, target and deviation. Click it
   to select its track in KiCad. Tick the net classes to show; `#PWR` nets are never mapped.
 - **Nets to simulate:** a net, a differential pair or a set of nets (picked on the map or taken from KiCad's
@@ -16,37 +14,71 @@ reads the board as it is open in KiCad, unsaved edits included. A toolbar button
 - **Ports:** click a trace (the port goes on its centre line, along it) or a pad (on the pad). The board's own
   port footprints (Fab text `P<n>`) count as well.
 - **A simulation:** the band and the solver, then Run (progress and the report in the window), or Open in
-  kicad2ems (the same set-up in [kicad2ems's own window](gui.md), with every setting). The S-parameters tab shows
+  kicad2ems (the same set-up in [kicad2ems's own window](https://github.com/lowprocess/kicad2ems/blob/main/docs/gui.md), with every setting). The S-parameters tab shows
   the results against the line model.
 
 ## Installing
 
-kicad2ems and the `kicad` extra (kicad-python, the Qt packages) in one Python environment, then the plugin into
-KiCad:
+**From KiCad's Plugin and Content Manager** (KiCad 9.0.1 or later): install *kicad2ems*, then Preferences >
+Plugins > **Enable KiCad API** and restart KiCad (or Reload there). The kicad2ems button appears in the PCB
+editor's toolbar. The first press builds the plugin its own Python environment and installs kicad2ems into it
+(`plugin/requirements.txt`): a few minutes, once. Preferences > Plugins > Recreate Plugin Environment does it
+again. On Linux KiCad uses the first Python on the PATH; on Windows and macOS its own.
+
+**From this repository**, the same folder:
 
 ```bash
-pip install '.[kicad]'                     # in kicad2ems's environment
-kicad2ems-kicad install                    # or: python -m kicad2ems.kicadplugin install
+python plugin/kicad2ems_plugin.py install           # copies plugin/ into KiCad's plugins folder
+python plugin/kicad2ems_plugin.py install --exec    # or: run this checkout with this Python
+python plugin/kicad2ems_plugin.py uninstall
 ```
-
-In KiCad: Preferences > Plugins > **Enable KiCad API**, then restart KiCad (or Reload there). The kicad2ems
-button appears in the PCB editor's toolbar.
 
 `install` writes a folder `kicad2ems` into KiCad's plugins folder, `~/.local/share/kicad/<version>/plugins` on
 Linux and `Documents/KiCad/<version>/plugins` on Windows and macOS. It goes into every KiCad 9 or later found;
-`--kicad-version 10.0` picks one and `--dir` gives the plugins folder itself. The folder holds:
+`--kicad-version 10.0` picks one and `--dir` gives the plugins folder itself.
+
+`--exec` is for working on the plugin, or for using a kicad2ems you have installed already (with openEMS,
+mom25d's compiled core or a GPU wheel, say): KiCad runs the checkout's entry point with the Python that ran
+`install`, and builds no environment. That Python needs `pip install -r plugin/requirements.txt` (or kicad2ems,
+kicad-python, PySide6 and pyqtgraph from elsewhere). Reinstall after moving to another Python.
+
+**Solvers.** The environment KiCad builds has the line model and gfdtd (on the CPU; numpy). mom25d and openEMS
+are not in it: mom25d's mesher has no wheel for every Python, and openEMS is not on PyPI. For them, install the
+plugin with `--exec` from a Python that has them, or install them into the plugin's environment
+(`<KiCad's cache folder>/python-environments/org.kicad2ems.plugin`).
 
 | File | |
 |---|---|
-| `plugin.json` | One action in the PCB editor, runtime `exec` (KiCad builds no Python environment for it) |
-| `kicad2ems-plugin` (`.cmd` on Windows) | The launcher: the Python `install` ran in, `-m kicad2ems.kicadplugin`. KiCad passes it its API socket and token |
+| `plugin.json` | One action in the PCB editor, runtime `python` (`exec` with `--exec`) |
+| `kicad2ems_plugin.py` | The entry point. KiCad passes it its API socket and token |
+| `requirements.txt` | What KiCad installs into the plugin's environment |
+| `kicad2ems_ipc/` | The plugin |
 | `icon-24.png`, `icon-48.png` | The button |
 
-Reinstall after moving kicad2ems to another Python. `kicad2ems-kicad uninstall` removes the folder.
+## Releasing
+
+```bash
+python tools/build_pcm.py                 # dist/kicad2ems-<version>-pcm.zip and dist/metadata.json
+```
+
+Upload the zip to the GitHub release `v<version>` (`__version__` in `plugin/kicad2ems_ipc/__init__.py`), then
+submit `dist/metadata.json` as `packages/com.github.lowprocess.kicad2ems/metadata.json` (with `pcm/icon.png`)
+in a merge request to [gitlab.com/kicad/addons/metadata](https://gitlab.com/kicad/addons/metadata). Pin
+`plugin/requirements.txt` to the kicad2ems and gfdtd commits the release was tested with.
+
+## Developing
+
+```bash
+pip install -r plugin/requirements.txt pytest jsonschema
+python -m pytest tests
+```
+
+The tests read three of kicad2ems's example boards (`tests/boards`). The plugin uses kicad2ems as a library:
+[docs/kicad-plugin.md](https://github.com/lowprocess/kicad2ems/blob/main/docs/kicad-plugin.md) there lists what it relies on.
 
 ## Using it
 
-![The plugin beside KiCad, set up to simulate an HDMI pair](img/readme/kicad_plugin.jpg)
+![The plugin beside KiCad, set up to simulate an HDMI pair](docs/img/kicad_plugin.jpg)
 
 1. Open the board in KiCad's PCB editor and press the kicad2ems button. The window reads the board and maps the
    impedance of every routed signal net, a group of nets at a time; the map fills in as it goes.
@@ -153,19 +185,19 @@ Everything goes to `<project>/kicad2ems/<board>/`:
 | `out/` | The run's results: S-parameters, plots, the report |
 
 The config is plain kicad2ems: `region = [x0, y0, x1, y1]` (KiCad mm), `ports = ["P5@x,y,F.Cu", "P6=J1.1"]`
-([extra ports](usage.md)), `cut_ports`, `nets = ["auto"]` (a net run: its nets and the ground nets, and
+([extra ports](https://github.com/lowprocess/kicad2ems/blob/main/docs/usage.md)), `cut_ports`, `nets = ["auto"]` (a net run: its nets and the ground nets, and
 `fast = "auto"`), `fmin`, `fmax`, `solvers`.
 
 ## How it works
 
 | Module | |
 |---|---|
-| `kicad2ems/kicadplugin/ipc.py` | The link to KiCad (kipy): the board as text (`Board.get_as_string`), its path, the selection's box and nets, selecting a track |
-| `kicad2ems/kicadplugin/model.py` | No Qt: the board read by kicad2ems's KiCad importer from that text, the impedance map, ports snapped to traces and pads, the session, the run's settings |
-| `kicad2ems/kicadplugin/window.py` | The window: kicad2ems's plan view with the region and port tools, the map built in a thread, runs as a separate process (the GUI's event stream) |
-| `kicad2ems/kicadplugin/install.py` | The plugin folder |
+| `plugin/kicad2ems_ipc/ipc.py` | The link to KiCad (kipy): the board as text (`Board.get_as_string`), its path, the selection's box and nets, selecting a track |
+| `plugin/kicad2ems_ipc/model.py` | No Qt: the board read by kicad2ems's KiCad importer from that text, the impedance map, ports snapped to traces and pads, the session, the run's settings |
+| `plugin/kicad2ems_ipc/window.py` | The window: kicad2ems's plan view with the region and port tools, the map built in a thread, runs as a separate process (the GUI's event stream) |
+| `plugin/kicad2ems_ipc/install.py` | The plugin folder |
 
-The map is the [line model](transmission-lines.md) of every signal net (routed, not ground), built without ports.
+The map is the [line model](https://github.com/lowprocess/kicad2ems/blob/main/docs/transmission-lines.md) of every signal net (routed, not ground), built without ports.
 The reference copper excludes every signal net, so a trace is referenced to the planes and grounds, never to a
 neighbouring trace.
 

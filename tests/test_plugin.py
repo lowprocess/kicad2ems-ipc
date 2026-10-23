@@ -5,7 +5,7 @@ import json, os, sys
 import numpy as np
 import pytest
 
-EX = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'examples')
+EX = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'boards')     # from kicad2ems's examples
 SCHEMA = '/usr/share/kicad/schemas/api.v1.schema.json'
 
 
@@ -17,14 +17,14 @@ def _text(name='rf_coupler'):
 
 
 @pytest.fixture(scope='module')
-def lowpass(boards):
-    """The generated low-pass demo board (examples/demo_lowpass.kicad_pcb is generated too, and not in git)."""
-    return boards['lowpass'] + '.kicad_pcb'
+def lowpass():
+    """kicad2ems's low-pass demo board (examples/make_demo_board.py ... lowpass there)."""
+    return os.path.join(EX, 'demo_lowpass.kicad_pcb')
 
 
 @pytest.fixture(scope='module')
 def plan():
-    from kicad2ems.kicadplugin.model import Plan
+    from kicad2ems_ipc.model import Plan
     p = Plan(_text(), os.path.join(EX, 'rf_coupler.kicad_pcb'))
     steps = list(p.map_steps(jobs=1))
     assert steps[-1][:2] == (len(p.signal), len(p.signal))
@@ -40,7 +40,7 @@ def test_impedance_map_of_the_board(plan):
 
 
 def test_ports_snap_to_traces_and_pads(plan):
-    from kicad2ems.kicadplugin.model import Session
+    from kicad2ems_ipc.model import Session
     s = Session()
     e = next(e for e in plan.lines['elements'] if e['kind'] == 'trace' and e['length'] > 2)
     mid = np.asarray(e['pts'][len(e['pts']) // 2])
@@ -57,7 +57,7 @@ def test_ports_snap_to_traces_and_pads(plan):
 def test_net_class_targets():
     """The target impedance from the class name; SE / diff from the name, else from the class holding a pair; a
     pair class's single nets get none; #PWR nets and classes are disabled."""
-    from kicad2ems.kicadplugin.netclass import parse_target, NetClasses, partner
+    from kicad2ems_ipc.netclass import parse_target, NetClasses, partner
     assert parse_target('50R_SE') == (50.0, 'se') and parse_target('100R_DIFF') == (100.0, 'diff')
     assert parse_target('100 Ohm diff') == (100.0, 'diff') and parse_target('Z90_DP') == (90.0, 'diff')
     assert parse_target('50ohm') == (50.0, None)
@@ -73,7 +73,7 @@ def test_net_class_targets():
 
 def test_project_file_classes(tmp_path):
     """The classes of a .kicad_pro: explicit assignments, then patterns, then Default."""
-    from kicad2ems.kicadplugin.netclass import NetClasses
+    from kicad2ems_ipc.netclass import NetClasses
     pro = tmp_path / 'b.kicad_pro'
     pro.write_text(json.dumps({'net_settings': {
         'classes': [{'name': 'Default'}, {'name': '100ohm'}, {'name': '50R_SE'}],
@@ -87,7 +87,7 @@ def test_project_file_classes(tmp_path):
 def test_diff_pair_impedance_and_pwr_nets():
     """A 100 ohm pair (the rf_diffvia example) in a 100R_DIFF class: where the legs couple, Zdiff (2 Zodd) is
     within 3 % of 100 ohm and the map colours by it; a #PWR net on the board is never mapped."""
-    from kicad2ems.kicadplugin.model import Plan
+    from kicad2ems_ipc.model import Plan
     from kicad2ems import overlay as ov
     text = _text('rf_diffvia')
     p = Plan(text, os.path.join(EX, 'rf_diffvia.kicad_pcb'), classes={'D_P': ['100R_DIFF'], 'D_N': ['100R_DIFF']})
@@ -110,7 +110,7 @@ def _key(p):
 
 def test_parallel_map_matches_one_process(lowpass):
     """Worker processes give the same map as one process (a net or pair at a time: no dependence on grouping)."""
-    from kicad2ems.kicadplugin.model import Plan
+    from kicad2ems_ipc.model import Plan
     text, path = _text(lowpass), lowpass
     one, two = Plan(text, path), Plan(text, path)
     list(one.map_steps(jobs=1))
@@ -121,7 +121,7 @@ def test_parallel_map_matches_one_process(lowpass):
 def test_tiled_planes_give_the_same_map(lowpass):
     """Ray casts against reference copper cut into tiles (tlines.TILE) find what the whole planes give."""
     import kicad2ems.lines.tlines as tl
-    from kicad2ems.kicadplugin.model import Plan
+    from kicad2ems_ipc.model import Plan
     text, path = _text(lowpass), lowpass
     keep = tl.TILE
     try:
@@ -140,7 +140,7 @@ def test_map_cache(tmp_path, lowpass):
     """The map kept between sessions: everything from the cache the second time, and after an edit only the net
     it touched is mapped again."""
     import re
-    from kicad2ems.kicadplugin.model import Plan
+    from kicad2ems_ipc.model import Plan
     text, path, cache = _text(lowpass), lowpass, str(tmp_path / 'm.json.gz')
     first = Plan(text, path)
     list(first.map_steps(jobs=1, cache=cache))
@@ -155,7 +155,7 @@ def test_map_cache(tmp_path, lowpass):
 
 
 def test_session_and_run_settings(plan, tmp_path):
-    from kicad2ems.kicadplugin.model import Session, run_values, write_config, session_path, outside
+    from kicad2ems_ipc.model import Session, run_values, write_config, session_path, outside
     from kicad2ems.config import build_settings
     s = Session(region=[-1.0, -1.0, 14.0, 12.0], fmin=1.0, fmax=6.0, solvers=['openems'])
     e = next(e for e in plan.lines['elements'] if e['kind'] == 'trace')
@@ -191,13 +191,13 @@ def _without_ports(text):
 
 
 def _net_plan(name, text=None):
-    from kicad2ems.kicadplugin.model import Plan
+    from kicad2ems_ipc.model import Plan
     path = name if name.endswith('.kicad_pcb') else os.path.join(EX, f'{name}.kicad_pcb')
     return Plan(text or _without_ports(_text(name)), path)
 
 
 def test_net_run_takes_parts_and_the_nets_beyond(tmp_path, lowpass):
-    from kicad2ems.kicadplugin import model as md
+    from kicad2ems_ipc import model as md
     from kicad2ems.region import parse_port_spec
     p = _net_plan(lowpass)
     s = p.setup_for_nets(['RF_IN'], margin=1.0)
@@ -268,7 +268,7 @@ def _fake_results(folder, stem='b'):
 
 
 def test_results_against_the_line_model(tmp_path):
-    from kicad2ems.kicadplugin import model as md
+    from kicad2ems_ipc import model as md
     assert md.results(str(tmp_path), 'b') is None
     _fake_results(str(tmp_path))
     r = md.results(str(tmp_path), 'b')
@@ -280,16 +280,25 @@ def test_results_against_the_line_model(tmp_path):
 
 
 def test_install_writes_a_valid_plugin(tmp_path):
-    from kicad2ems.kicadplugin import install
-    dest = install.install(str(tmp_path / 'kicad2ems'))
+    from kicad2ems_ipc import install
+    with open(os.path.join(install.PLUGIN, 'plugin.json')) as fh:
+        assert json.load(fh) == install.plugin_json()                  # plugin/plugin.json is the installer's
+    dest = install.install(str(tmp_path / 'kicad2ems'))                # the folder, for KiCad's own environment
     pj = json.load(open(os.path.join(dest, 'plugin.json')))
-    entry = os.path.join(dest, pj['actions'][0]['entrypoint'])
-    assert os.access(entry, os.X_OK) and 'kicad2ems.kicadplugin' in open(entry).read()
-    assert all(os.path.getsize(os.path.join(dest, f)) > 0 for f in pj['actions'][0]['icons-light'])
-    if os.path.exists(SCHEMA):
-        jsonschema = pytest.importorskip('jsonschema')
-        jsonschema.validate(pj, json.load(open(SCHEMA)))
-    assert install.uninstall(dest) and not os.path.exists(dest)
+    assert pj['runtime']['type'] == 'python' and os.path.isfile(os.path.join(dest, 'kicad2ems_ipc', 'window.py'))
+    assert not os.path.exists(os.path.join(dest, 'kicad2ems_ipc', '__pycache__'))
+    assert 'kicad2ems' in open(os.path.join(dest, 'requirements.txt')).read()
+    exe = install.install(str(tmp_path / 'exec'), exec_=True)          # --exec: this Python on this checkout
+    pe = json.load(open(os.path.join(exe, 'plugin.json')))
+    entry = os.path.join(exe, pe['actions'][0]['entrypoint'])
+    assert pe['runtime']['type'] == 'exec' and os.access(entry, os.X_OK)
+    assert os.path.join(install.PLUGIN, install.ENTRY) in open(entry).read()
+    for d, j in ((dest, pj), (exe, pe)):
+        assert all(os.path.getsize(os.path.join(d, f)) > 0 for f in j['actions'][0]['icons-light'])
+        if os.path.exists(SCHEMA):
+            jsonschema = pytest.importorskip('jsonschema')
+            jsonschema.validate(j, json.load(open(SCHEMA)))
+        assert install.uninstall(d) and not os.path.exists(d)
 
 
 def test_live_link_reads_and_selects_through_kipy(monkeypatch):
@@ -300,7 +309,7 @@ def test_live_link_reads_and_selects_through_kipy(monkeypatch):
     pytest.importorskip('kipy')
     from types import SimpleNamespace as NS
     from kipy.proto.board.board_types_pb2 import BoardLayer
-    from kicad2ems.kicadplugin import ipc
+    from kicad2ems_ipc import ipc
     MM = 1_000_000                                                  # nm
 
     def track(layer, net, x0, x1, y, w=0.4):
@@ -417,8 +426,8 @@ def test_window_offscreen(tmp_path):
     pytest.importorskip('PySide6')
     import time
     from PySide6.QtWidgets import QApplication
-    from kicad2ems.kicadplugin.window import Window
-    from kicad2ems.kicadplugin import model as md
+    from kicad2ems_ipc.window import Window
+    from kicad2ems_ipc import model as md
     app = QApplication.instance() or QApplication([])
     live = FakeLive(str(tmp_path))
     w = Window(live)

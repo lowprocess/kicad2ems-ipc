@@ -1,0 +1,27 @@
+{
+  "$schema": "https://go.kicad.org/pcm/schemas/v2",
+  "name": "kicad2ems",
+  "description": "Trace impedance map and EM simulation (S-parameters) of the open board",
+  "description_full": "The open board seen from above with every trace coloured by how far its impedance is from its net class's target (kicad2ems's line model; Zdiff for pairs), read on hover. Pick nets, a pair or a region and ports, and simulate them with kicad2ems (the line model, gfdtd's FDTD; openEMS and mom25d where installed), the S-parameters against the line model's. Needs KiCad's API enabled (Preferences > Plugins). On first use KiCad builds the plugin's Python environment, with kicad2ems in it: this takes a few minutes.",
+  "identifier": "com.github.lowprocess.kicad2ems",
+  "type": "plugin",
+  "author": {
+    "name": "kicad2ems",
+    "contact": {
+      "web": "https://github.com/lowprocess/kicad2ems-ipc"
+    }
+  },
+  "license": "GPL-3.0",
+  "resources": {
+    "homepage": "https://github.com/lowprocess/kicad2ems-ipc"
+  },
+  "tags": ["simulation", "impedance", "rf", "signal integrity"],
+  "versions": [
+    {
+      "version": "VERSION",
+      "status": "testing",
+      "kicad_version": "9.0",
+      "runtime": "ipc"
+    }
+  ]
+}

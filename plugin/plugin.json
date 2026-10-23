@@ -1,0 +1,29 @@
+{
+  "$schema": "https://go.kicad.org/api/schemas/v1",
+  "identifier": "org.kicad2ems.plugin",
+  "name": "kicad2ems",
+  "description": "Transmission-line impedance of the board, and EM simulation of a region with kicad2ems",
+  "runtime": {
+    "type": "python"
+  },
+  "actions": [
+    {
+      "identifier": "kicad2ems.open",
+      "name": "kicad2ems",
+      "description": "Impedance map, region and ports, and a kicad2ems simulation",
+      "show-button": true,
+      "scopes": [
+        "pcb"
+      ],
+      "entrypoint": "kicad2ems_plugin.py",
+      "icons-light": [
+        "icon-24.png",
+        "icon-48.png"
+      ],
+      "icons-dark": [
+        "icon-24.png",
+        "icon-48.png"
+      ]
+    }
+  ]
+}

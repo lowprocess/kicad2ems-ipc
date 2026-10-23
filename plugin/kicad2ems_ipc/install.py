@@ -1,23 +1,34 @@
 """
-The plugin folder KiCad loads (KiCad 9 and later): <KiCad's plugins folder>/kicad2ems/ with
+The plugin folder KiCad loads (KiCad 9 and later): <KiCad's plugins folder>/kicad2ems/. The repository's plugin/
+folder is that folder, and the Plugin and Content Manager installs the same files from its package
+(tools/build_pcm.py):
 
-  plugin.json        one action in the PCB editor's toolbar; runtime "exec": KiCad runs the launcher with its API
-                     socket and token in the environment
-  kicad2ems-plugin   the launcher (.cmd on Windows): this Python, -m kicad2ems.kicadplugin. So the plugin runs in
-                     the environment kicad2ems is installed in (and KiCad builds no Python environment for it)
+  plugin.json          one action in the PCB editor's toolbar
+  kicad2ems_plugin.py  the entry point: the window (kicad2ems_ipc.window)
+  requirements.txt     what KiCad installs into the plugin's own Python environment (kicad2ems, kicad-python, Qt)
+  kicad2ems_ipc/       the plugin
   icon-24.png, icon-48.png
 
-    python -m kicad2ems.kicadplugin install [--kicad-version 10.0] [--dir FOLDER]
-    python -m kicad2ems.kicadplugin uninstall
+    python plugin/kicad2ems_plugin.py install [--kicad-version 10.0] [--dir FOLDER] [--exec]
+    python plugin/kicad2ems_plugin.py uninstall
+
+install copies the folder (runtime "python": KiCad builds the environment from requirements.txt, as for a
+package from the Plugin and Content Manager). --exec instead writes a plugin.json and a launcher that run this
+checkout's entry point with this Python (runtime "exec"), for working on the plugin or using a kicad2ems
+installed here (KiCad then builds no environment).
 
 The plugins folder: <documents>/KiCad/<version>/plugins on Windows and macOS, ~/.local/share/kicad/<version>/plugins
 on Linux ($XDG_DATA_HOME). Without --kicad-version: every KiCad 9 or later found there, else 10.0. KiCad reads it at
 start (or Preferences > Plugins > Reload).
 """
-import argparse, glob, json, os, re, stat, sys
+import argparse, glob, json, os, re, shutil, stat, sys
 
 IDENTIFIER = 'org.kicad2ems.plugin'
 FOLDER = 'kicad2ems'
+PLUGIN = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))     # the plugin/ folder
+ENTRY = 'kicad2ems_plugin.py'
+ICONS = ['icon-24.png', 'icon-48.png']
+FILES = ['plugin.json', ENTRY, 'requirements.txt'] + ICONS
 
 
 def kicad_base():
@@ -38,27 +49,27 @@ def versions(base=None):
     return sorted(out, key=lambda v: tuple(map(int, v.split('.'))))
 
 
-def plugin_json(entry):
-    icons = ['icon-24.png', 'icon-48.png']
+def plugin_json(runtime='python', entry=ENTRY):
+    """plugin.json: runtime 'python' (plugin/plugin.json, the package's) or 'exec' (a launcher, --exec)."""
     return {'$schema': 'https://go.kicad.org/api/schemas/v1', 'identifier': IDENTIFIER, 'name': 'kicad2ems',
             'description': 'Transmission-line impedance of the board, and EM simulation of a region with kicad2ems',
-            'runtime': {'type': 'exec'},
+            'runtime': {'type': runtime},
             'actions': [{'identifier': 'kicad2ems.open', 'name': 'kicad2ems',
                          'description': 'Impedance map, region and ports, and a kicad2ems simulation',
                          'show-button': True, 'scopes': ['pcb'], 'entrypoint': entry,
-                         'icons-light': icons, 'icons-dark': icons}]}
+                         'icons-light': ICONS, 'icons-dark': ICONS}]}
 
 
 def launcher(folder):
-    """The script KiCad runs: this Python, the plugin's module. Returns its file name."""
-    py = sys.executable
+    """--exec: the script KiCad runs, this Python on this checkout's entry point. Returns its file name."""
+    py, entry = sys.executable, os.path.join(PLUGIN, ENTRY)
     if sys.platform.startswith('win'):
         name = 'kicad2ems-plugin.cmd'
-        text = f'@echo off\r\nset PYTHONHOME=\r\nset PYTHONPATH=\r\n"{py}" -m kicad2ems.kicadplugin %*\r\n'
+        text = f'@echo off\r\nset PYTHONHOME=\r\nset PYTHONPATH=\r\n"{py}" "{entry}" %*\r\n'
     else:
         name = 'kicad2ems-plugin'
-        text = f'#!/bin/sh\n# the kicad2ems KiCad plugin: kicad2ems\'s own Python\nunset PYTHONHOME PYTHONPATH\n' \
-               f'exec "{py}" -m kicad2ems.kicadplugin "$@"\n'
+        text = f'#!/bin/sh\n# the kicad2ems KiCad plugin: this checkout, run by the Python that installed it\n' \
+               f'unset PYTHONHOME PYTHONPATH\nexec "{py}" "{entry}" "$@"\n'
     path = os.path.join(folder, name)
     with open(path, 'w', newline='') as fh:
         fh.write(text)
@@ -66,36 +77,24 @@ def launcher(folder):
     return name
 
 
-def icons(folder):
-    """The toolbar icons, drawn from kicad2ems's own (gui/kicad2ems.svg)."""
-    os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
-    from PySide6.QtGui import QImage, QPainter
-    from PySide6.QtCore import Qt
-    from PySide6.QtSvg import QSvgRenderer
-    from PySide6.QtWidgets import QApplication
-    app = QApplication.instance() or QApplication([])                # noqa: F841 (painting needs one; a full
-    # QApplication, so that widgets can follow in the same process)
-    svg = QSvgRenderer(os.path.join(os.path.dirname(os.path.dirname(__file__)), 'gui', 'kicad2ems.svg'))
-    for n in (24, 48):
-        img = QImage(n, n, QImage.Format_ARGB32)
-        img.fill(Qt.transparent)
-        p = QPainter(img)
-        svg.render(p)
-        p.end()
-        img.save(os.path.join(folder, f'icon-{n}.png'))
-
-
-def install(dest):
-    os.makedirs(dest, exist_ok=True)
-    entry = launcher(dest)
-    with open(os.path.join(dest, 'plugin.json'), 'w') as fh:
-        json.dump(plugin_json(entry), fh, indent=2)
-    icons(dest)
+def install(dest, exec_=False):
+    if os.path.exists(dest):
+        uninstall(dest)
+    os.makedirs(dest)
+    for f in ICONS:
+        shutil.copy2(os.path.join(PLUGIN, f), dest)
+    if exec_:
+        with open(os.path.join(dest, 'plugin.json'), 'w') as fh:
+            json.dump(plugin_json('exec', launcher(dest)), fh, indent=2)
+        return dest
+    for f in FILES:
+        shutil.copy2(os.path.join(PLUGIN, f), dest)
+    shutil.copytree(os.path.join(PLUGIN, 'kicad2ems_ipc'), os.path.join(dest, 'kicad2ems_ipc'),
+                    ignore=shutil.ignore_patterns('__pycache__'))
     return dest
 
 
 def uninstall(dest):
-    import shutil
     if os.path.isfile(os.path.join(dest, 'plugin.json')):
         shutil.rmtree(dest)
         return True
@@ -103,11 +102,13 @@ def uninstall(dest):
 
 
 def main(argv=None):
-    ap = argparse.ArgumentParser(prog='python -m kicad2ems.kicadplugin', description=__doc__,
+    ap = argparse.ArgumentParser(prog='python plugin/kicad2ems_plugin.py', description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('action', choices=('install', 'uninstall'))
     ap.add_argument('--kicad-version', help='KiCad version folder, e.g. 10.0 (default: every one found)')
     ap.add_argument('--dir', help='the plugins folder itself (overrides the version)')
+    ap.add_argument('--exec', dest='exec_', action='store_true',
+                    help="run this checkout with this Python (KiCad builds no environment)")
     a = ap.parse_args(argv)
     if a.dir:
         targets = [os.path.join(a.dir, FOLDER)]
@@ -116,15 +117,18 @@ def main(argv=None):
         targets = [os.path.join(kicad_base(), v, 'plugins', FOLDER) for v in vs]
     for t in targets:
         if a.action == 'install':
-            install(t)
+            install(t, a.exec_)
             print(f"installed: {t}")
         else:
             print(f"{'removed' if uninstall(t) else 'not installed'}: {t}")
-    try:
-        import kipy                                                 # noqa: F401
-    except ImportError:
-        print("note: the plugin needs the kicad-python package in this Python: pip install kicad-python")
+    if a.action == 'install' and a.exec_:
+        try:
+            import kipy, kicad2ems                                  # noqa: F401
+        except ImportError as e:
+            print(f"note: --exec runs this Python, which lacks {e.name}: pip install -r "
+                  f"{os.path.join(PLUGIN, 'requirements.txt')}")
     if a.action == 'install':
         print("Restart KiCad (or Preferences > Plugins > Reload), and enable its API server there: the kicad2ems "
-              "button appears in the PCB editor's toolbar.")
+              "button appears in the PCB editor's toolbar." + ('' if a.exec_ else
+              " The first start builds the plugin's Python environment (a few minutes)."))
     return 0

@@ -37,8 +37,8 @@ class Plan:
     classes: {net: [class names]} as KiCad reports them (ipc.Live.net_classes); None: the project file next to
     the board (<board>.kicad_pro)."""
     def __init__(self, text, path='', classes=None):
-        from ..importers.kicad import KiCadBoard
-        from ..board import Board
+        from kicad2ems.importers.kicad import KiCadBoard
+        from kicad2ems.board import Board
         from .netclass import NetClasses
         self.path = path
         self.notes = []
@@ -99,7 +99,7 @@ class Plan:
         a time (a net, or a pair's two legs: only a pair couples, so the map does not depend on how nets are
         grouped), over `jobs` worker processes (default: one per performance core; 1: here, in this process).
         A unit at a time was also the fastest: 4.9 s for KiCad's CM5 demo, against 5.8 s in groups of 24 nets."""
-        from ..lines.tlines import RefCopper
+        from kicad2ems.lines.tlines import RefCopper
         nets = [n for n in (self.signal if nets is None else nets) if not self.nc.disabled(n)]
         refcu = RefCopper(self.m, set(self.signal) | set(self.disabled))
         self.lines['elements'] = []
@@ -148,7 +148,7 @@ class Plan:
         its pads on the nets: one leg of a differential port where it has pads on both legs of a pair. A track end
         that reaches nothing (no pad, via or track) gets a port too. Nets the board's own port footprints sit on
         keep those ports instead."""
-        from ..parts import _kind_value
+        from kicad2ems.parts import _kind_value
         from .netclass import partner
         sig, gnd = set(self.signal), set(self.m.ground_nets)
         want = []
@@ -235,7 +235,7 @@ class Plan:
             for (net, lay, x, y, pad, what), leg in legs:
                 spec = f"P{n}{leg}={pad}" if pad else f"P{n}{leg}@{x:.4f},{y:.4f},{lay}"
                 ports.append(dict(name=f"P{n}{leg}", spec=spec, net=net, layer=lay, x=x, y=-y, what=what))
-        from ..region import extra_port_fps
+        from kicad2ems.region import extra_port_fps
         ok = []
         for p in ports:
             try:
@@ -329,7 +329,7 @@ class Plan:
         centre line of the nearest trace section of `layer` within `tol` (P<n>@x,y,layer: KiCad mm, pointing
         along the trace; elements: the map's sections, default plan.lines). Returns the port dict (name, spec, net,
         layer, x, y model mm, what) or raises ValueError with why not."""
-        from ..region import extra_port_fps
+        from kicad2ems.region import extra_port_fps
         n = self.next_port(session)
         kx, ky = x, -y
         for fp in self.raw.footprints:
@@ -419,7 +419,7 @@ def _drawing(m, lm):
 
 
 def _map_group(m, refcu, chunk):
-    from ..lines.tlines import build
+    from kicad2ems.lines.tlines import build
     return _drawing(m, build(m, nets=chunk, refcu=refcu))
 
 
@@ -635,7 +635,7 @@ def run_values(session, plan, text, folder, stem):
 
 def write_config(values, path):
     """A kicad2ems TOML config of the run's settings (kicad2ems-gui opens it)."""
-    from ..gui.runner import toml_value
+    from kicad2ems.gui.runner import toml_value
     lines = ["# written by the kicad2ems KiCad plugin"]
     lines += [f"{k} = {toml_value(v)}" for k, v in values.items() if v not in (None, '', [])]
     with open(path, 'w') as fh:
@@ -645,14 +645,14 @@ def write_config(values, path):
 
 def legend(lines):
     """(reference ohm, half span ohm, low, high) of the map's colours."""
-    from .. import overlay as ov
+    from kicad2ems import overlay as ov
     ref = ov.reference(lines)
     return ref, ov.span(lines, ref), *(lines.get('z0_range') or (ref, ref))
 
 
 def z0_at(lines, x, y, layer, tol):
     """The map section under a point (model mm) and its description, or (None, '')."""
-    from .. import overlay as ov
+    from kicad2ems import overlay as ov
     i = ov.nearest(lines['elements'], x, y, tol, layer=layer)
     return (i, ov.describe(lines['elements'][i])) if i is not None else (None, '')
 
@@ -663,7 +663,7 @@ def results(out_dir, stem):
     """The S-parameters of a finished run (<out>/<stem>_run.json and its Touchstone files), or None: dict(freq Hz,
     solved [dict(key, label, names, S, line: is it the line model)], reference (the first solver's key),
     compare {key: the run's table of it against the reference}, warnings)."""
-    from ..touchstone import read_touchstone
+    from kicad2ems.touchstone import read_touchstone
     try:
         with open(os.path.join(out_dir, f"{stem}_run.json")) as fh:
             sm = json.load(fh)

@@ -1,0 +1,7 @@
+# What KiCad installs into the plugin's own Python environment. kicad2ems and gfdtd are not on PyPI: archives of
+# their repositories (no git needed), pinned to the commits this plugin was tested with.
+kicad-python>=0.5
+PySide6-Essentials>=6.5
+pyqtgraph>=0.13
+kicad2ems[gui,dumps,fast] @ https://github.com/lowprocess/kicad2ems/archive/67651b666b50044a0a2c2ad63f41215f266217d5.zip
+gfdtd @ https://github.com/lowprocess/gfdtd/archive/e14e9a06a266ca1736327edf6a655f8bb0ea7ee6.zip
