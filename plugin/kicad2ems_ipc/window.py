@@ -19,9 +19,15 @@ import pyqtgraph as pg
 from kicad2ems.gui.planview import PlanView
 from . import model as md
 
-SOLVERS = [('auto (the fastest full-wave + line model)', ['auto']), ('openEMS (3D FDTD)', ['openems']),
-           ('gfdtd (GPU FDTD)', ['gfdtd']), ('mom25d (2.5D MoM)', ['mom25d']), ('openEMS + gfdtd', ['openems', 'gfdtd']),
-           ('line model only', ['lines'])]
+
+def solver_choices():
+    """The solver menu: auto, each full-wave solver installed (kicad2ems's registry), the line model."""
+    from kicad2ems.solvers import registry
+    return [('auto (the fastest full-wave + line model)', ['auto'])] + \
+        [(sv.label, [n]) for n, sv in registry().items() if sv.consumes == 'board'] + [('line model only', ['lines'])]
+
+
+SOLVERS = solver_choices()
 
 
 class Loader(QThread):
