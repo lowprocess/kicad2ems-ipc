@@ -157,7 +157,7 @@ def test_map_cache(tmp_path, lowpass):
 def test_session_and_run_settings(plan, tmp_path):
     from kicad2ems_ipc.model import Session, run_values, write_config, session_path, outside
     from kicad2ems.config import build_settings
-    s = Session(region=[-1.0, -1.0, 14.0, 12.0], fmin=1.0, fmax=6.0, solvers=['openems'])
+    s = Session(region=[-1.0, -1.0, 14.0, 12.0], fmin=1.0, fmax=6.0, solvers=['gfdtd'])   # KiCad's env: gfdtd
     e = next(e for e in plan.lines['elements'] if e['kind'] == 'trace')
     s.ports.append(dict(name='P5', spec='P5@3,2.82,F.Cu', x=3.0, y=-2.82, layer='F.Cu', what='', net='RF'))
     assert not outside(s, s.ports[0]) and outside(s, dict(x=30.0, y=-2.0))
@@ -168,7 +168,7 @@ def test_session_and_run_settings(plan, tmp_path):
     assert os.path.exists(vals['board']) and vals['region'] == s.region and vals['cut_ports'] is True
     cfg = write_config(vals, str(tmp_path / 'run' / 'rf_coupler.toml'))
     st = build_settings({}, cfg)
-    assert st.ports == ['P5@3,2.82,F.Cu'] and st.fmax == 6.0 and st.solver_plan()[0] == ['openems']
+    assert st.ports == ['P5@3,2.82,F.Cu'] and st.fmax == 6.0 and st.solver_plan()[0] == ['gfdtd']
     assert e is not None
 
 
