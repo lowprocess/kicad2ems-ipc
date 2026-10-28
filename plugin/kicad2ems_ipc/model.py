@@ -660,10 +660,9 @@ def results(out_dir, stem):
     """The S-parameters of a finished run (<out>/<stem>_run.json and its Touchstone files), or None: dict(freq Hz,
     solved [dict(key, label, names, S, line: is it the line model)], reference (the first solver's key),
     compare {key: the run's table of it against the reference}, warnings)."""
-    from kicad2ems.api.frontend import read_touchstone
+    from kicad2ems.api.frontend import read_touchstone, read_summary
     try:
-        with open(os.path.join(out_dir, f"{stem}_run.json")) as fh:
-            sm = json.load(fh)
+        sm = read_summary(os.path.join(out_dir, f"{stem}_run.json"))
     except (OSError, ValueError):
         return None
     solved, freq = [], None
