@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                                QTableWidget, QTableWidgetItem, QHeaderView)
 import pyqtgraph as pg
 
-from kicad2ems_gui.planview import PlanView
+from kicad2ems_gui.api import PlanView
 from . import model as md
 
 

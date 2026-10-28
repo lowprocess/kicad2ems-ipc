@@ -1,10 +1,11 @@
 # What KiCad installs into the plugin's own Python environment. kicad2ems, kicad2ems-gui (the plan view, and the
-# window it opens) and gfdtd (the FDTD solver it offers, with its kicad2ems plugin) are not on PyPI: archives of
-# their repositories (no git needed), pinned to the commits this plugin was tested with. emsdev (the machine's GPUs,
-# threads and memory) comes with kicad2ems and gfdtd, from its main branch's archive.
+# window it opens), kicad2ems-fdtd (the FDTD solvers' kicad2ems plugin) and gfdtd (the FDTD engine it offers) are
+# not on PyPI: archives of their repositories (no git needed), pinned to the commits this plugin was tested with.
+# emsdev (the machine's GPUs, threads and memory) comes with kicad2ems and gfdtd, from its main branch's archive.
 kicad-python>=0.5
 PySide6-Essentials>=6.5
 pyqtgraph>=0.13
-kicad2ems[dumps,fast] @ https://github.com/lowprocess/kicad2ems/archive/d9b12c295f20cb2a7a84ce2f8128f96270b8a0d4.zip
-kicad2ems-gui @ https://github.com/lowprocess/kicad2ems-gui/archive/c7f254d15b3abd7edeea8152cca0d6db344bf5ff.zip
-gfdtd @ https://github.com/lowprocess/gfdtd/archive/c80067714033ced1c6850225f4a378417b80e907.zip
+kicad2ems[dumps,fast] @ https://github.com/lowprocess/kicad2ems/archive/cfca68956cd8e469924303495624e159ed42c6d1.zip
+kicad2ems-gui @ https://github.com/lowprocess/kicad2ems-gui/archive/2dedc9dd4a38e75cceadc19cd473ae4c778f8fb7.zip
+gfdtd @ https://github.com/lowprocess/gfdtd/archive/92189f265d5c35cbc50d4cefa8ac0743653aa352.zip
+kicad2ems-fdtd @ https://github.com/lowprocess/kicad2ems-fdtd/archive/a911f1d9edd0bb22ba25523f012e5191745c45e2.zip
