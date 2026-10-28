@@ -5,7 +5,7 @@
 kicad-python>=0.5
 PySide6-Essentials>=6.5
 pyqtgraph>=0.13
-kicad2ems[dumps,fast] @ https://github.com/lowprocess/kicad2ems/archive/baf52037e9fe439d50c18eec93334b728e38ff83.zip
-kicad2ems-gui @ https://github.com/lowprocess/kicad2ems-gui/archive/c2645ad18107eaa4aba8e604668a2f533067e001.zip
-gfdtd @ https://github.com/lowprocess/gfdtd/archive/9291ec4e519498f7b5e1747cda61169eb4d6393e.zip
-kicad2ems-fdtd @ https://github.com/lowprocess/kicad2ems-fdtd/archive/7ba342bd5311e867a94bcf48aad9eb783ae3d808.zip
+kicad2ems[dumps,fast] @ https://github.com/lowprocess/kicad2ems/archive/fc4d93f19526057b506bf5d7f4a0938b7de6099e.zip
+kicad2ems-gui @ https://github.com/lowprocess/kicad2ems-gui/archive/c66fa26fc55f0c18194851adf5114772b78280b9.zip
+gfdtd @ https://github.com/lowprocess/gfdtd/archive/3bcaa9860fe65113b309f52715ef38d2f91d5309.zip
+kicad2ems-fdtd @ https://github.com/lowprocess/kicad2ems-fdtd/archive/38ff3c692e00dfe403d01f7f0537e00360647bfb.zip
