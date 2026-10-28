@@ -22,7 +22,7 @@ from . import model as md
 
 def solver_choices():
     """The solver menu: auto, each full-wave solver installed (kicad2ems's registry), the line model."""
-    from kicad2ems.solvers import registry
+    from kicad2ems.api.frontend import registry
     return [('auto (the fastest full-wave + line model)', ['auto'])] + \
         [(sv.label, [n]) for n, sv in registry().items() if sv.consumes == 'board'] + [('line model only', ['lines'])]
 
@@ -79,7 +79,7 @@ class Legend(QWidget):
         self.update()
 
     def paintEvent(self, ev):
-        from kicad2ems import overlay as ov
+        from kicad2ems.api.frontend import overlay as ov
         p = QPainter(self)
         w, h = self.width(), self.height()
         g = QLinearGradient(0, 0, w, 0)
@@ -636,7 +636,7 @@ class Window(QMainWindow):
             self.draw_btn.setChecked(False)                         # back to inspecting (clears the band)
             self._set_region(md.region_of_box(x0, -y0, x, -y, margin=0.0), by_hand=True)
         elif self.view.mode == 'net':
-            from kicad2ems import overlay as ov
+            from kicad2ems.api.frontend import overlay as ov
             i = ov.nearest(self.lines['elements'], x, y, tol, layer=self.view.current_layer())
             net = self.lines['elements'][i].get('net') if i is not None else None
             if not net:
@@ -796,7 +796,7 @@ class Window(QMainWindow):
         return md.run_values(self.session, self.plan, self.text, self.folder, self.stem)
 
     def run(self):
-        from kicad2ems.runs import Run
+        from kicad2ems.api.frontend import Run
         try:
             vals = self._values()
         except (ValueError, OSError) as e:
@@ -805,7 +805,7 @@ class Window(QMainWindow):
         md.write_config(vals, os.path.join(self.folder, f"{self.stem}.toml"))
         self.run_out = vals['out']
         r = Run(vals, self.run_out)
-        from kicad2ems.runs import EventTail
+        from kicad2ems.api.frontend import EventTail
         self.tail = EventTail(r.events)
         self.proc = QProcess(self)
         self.proc.setProcessChannelMode(QProcess.MergedChannels)
@@ -852,7 +852,7 @@ class Window(QMainWindow):
             self.run_lab.setText("the run failed:\n" + "\n".join(tail))
 
     def stop(self):
-        from kicad2ems.runs import stop_runs
+        from kicad2ems.api.frontend import stop_runs
         if self.run_out:
             stop_runs(self.run_out)
         self.run_lab.setText('stopping ...')
