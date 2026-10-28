@@ -436,7 +436,7 @@ def _worker_map(chunk):
 
 
 def _jobs():
-    """Worker processes for the map: one per performance core (kicad2ems's rule, emdev's), at least 1."""
+    """Worker processes for the map: one per performance core (kicad2ems's rule, emsdev's), at least 1."""
     from kicad2ems.api.frontend import core_threads
     return core_threads()
 
