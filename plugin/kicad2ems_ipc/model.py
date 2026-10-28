@@ -635,7 +635,7 @@ def run_values(session, plan, text, folder, stem):
 
 def write_config(values, path):
     """A kicad2ems TOML config of the run's settings (kicad2ems-gui opens it)."""
-    from kicad2ems.gui.runner import toml_value
+    from kicad2ems.runs import toml_value
     lines = ["# written by the kicad2ems KiCad plugin"]
     lines += [f"{k} = {toml_value(v)}" for k, v in values.items() if v not in (None, '', [])]
     with open(path, 'w') as fh:

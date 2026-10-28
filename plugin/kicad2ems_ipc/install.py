@@ -123,7 +123,7 @@ def main(argv=None):
             print(f"{'removed' if uninstall(t) else 'not installed'}: {t}")
     if a.action == 'install' and a.exec_:
         try:
-            import kipy, kicad2ems                                  # noqa: F401
+            import kipy, kicad2ems, kicad2ems_gui                   # noqa: F401
         except ImportError as e:
             print(f"note: --exec runs this Python, which lacks {e.name}: pip install -r "
                   f"{os.path.join(PLUGIN, 'requirements.txt')}")

@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                                QTableWidget, QTableWidgetItem, QHeaderView)
 import pyqtgraph as pg
 
-from kicad2ems.gui.planview import PlanView
+from kicad2ems_gui.planview import PlanView
 from . import model as md
 
 
@@ -796,7 +796,7 @@ class Window(QMainWindow):
         return md.run_values(self.session, self.plan, self.text, self.folder, self.stem)
 
     def run(self):
-        from kicad2ems.gui.runner import Run
+        from kicad2ems.runs import Run
         try:
             vals = self._values()
         except (ValueError, OSError) as e:
@@ -805,7 +805,7 @@ class Window(QMainWindow):
         md.write_config(vals, os.path.join(self.folder, f"{self.stem}.toml"))
         self.run_out = vals['out']
         r = Run(vals, self.run_out)
-        from kicad2ems.gui.runner import EventTail
+        from kicad2ems.runs import EventTail
         self.tail = EventTail(r.events)
         self.proc = QProcess(self)
         self.proc.setProcessChannelMode(QProcess.MergedChannels)
@@ -852,7 +852,7 @@ class Window(QMainWindow):
             self.run_lab.setText("the run failed:\n" + "\n".join(tail))
 
     def stop(self):
-        from kicad2ems.gui.runner import stop_runs
+        from kicad2ems.runs import stop_runs
         if self.run_out:
             stop_runs(self.run_out)
         self.run_lab.setText('stopping ...')
@@ -864,7 +864,7 @@ class Window(QMainWindow):
             QMessageBox.warning(self, 'kicad2ems', str(e))
             return
         cfg = md.write_config(vals, os.path.join(self.folder, f"{self.stem}.toml"))
-        QProcess.startDetached(sys.executable, ['-m', 'kicad2ems.gui', cfg])
+        QProcess.startDetached(sys.executable, ['-m', 'kicad2ems_gui', cfg])
         self.statusBar().showMessage(f"opened {cfg} in kicad2ems", 5000)
 
     def _open_report(self):
