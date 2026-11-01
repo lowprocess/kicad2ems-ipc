@@ -150,6 +150,12 @@ covering 95 % of the traces shown (at least 10 %).
 
 Anything named `#PWR` (a net or a class: KiCad's power symbols) is disabled: never mapped, listed apart.
 
+A pair's Zdiff and a grounded CPW's Z0 include the copper's thickness, from the field solver, so a pair designed by a
+zero-thickness formula reads low here: `rf_diffvia`'s "100 ohm" pair reads 92 ohm on the outer layers and 84 ohm on
+the inner ones (3D FDTD agrees within 1 ohm). **Every section by the field solver** takes every trace from the board's
+copper cut across it (about 5 x slower; both maps are kept). **Field across it…** draws the field across the
+section last clicked.
+
 **Show** narrows the map to KiCad's selection or the region, within the ticked classes. Nets are mapped the
 first time they are shown, in the background, and kept.
 

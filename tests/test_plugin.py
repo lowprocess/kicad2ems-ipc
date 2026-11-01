@@ -85,8 +85,9 @@ def test_project_file_classes(tmp_path):
 
 
 def test_diff_pair_impedance_and_pwr_nets():
-    """A 100 ohm pair (the rf_diffvia example) in a 100R_DIFF class: where the legs couple, Zdiff (2 Zodd) is
-    within 3 % of 100 ohm and the map colours by it; a #PWR net on the board is never mapped."""
+    """A pair designed as 100 ohm by zero-thickness formulas (the rf_diffvia example) in a 100R_DIFF class: where the
+    legs couple, Zdiff (2 Zodd) with its 35 um copper reads 92 ohm on the outer layers and 84 ohm on the inner ones (3D
+    FDTD: 92 and 83), and the map colours by it; a #PWR net on the board is never mapped."""
     from kicad2ems_ipc.model import Plan
     from kicad2ems import overlay as ov
     text = _text('rf_diffvia')
@@ -95,12 +96,33 @@ def test_diff_pair_impedance_and_pwr_nets():
     units = [chunk for _, _, chunk in p.map_steps(jobs=1)]
     assert [sorted(u) for u in units] == [['D_N', 'D_P']]               # the legs mapped together
     coupled = [e for e in p.lines['elements'] if e['kind'] == 'trace' and e['zdiff']]
-    assert coupled and all(abs(e['zdiff'] - 100) < 3 and e['tkind'] == 'diff' for e in coupled)
-    assert all(abs(ov.deviation(e)) < 0.03 for e in coupled) and 'Zdiff' in ov.describe(coupled[0])
+    assert coupled and all(e['tkind'] == 'diff' for e in coupled)
+    assert sorted({round(e['zdiff']) for e in coupled}) == [84, 92]
+    assert all(ov.deviation(e) == pytest.approx(e['zdiff'] / 100 - 1) for e in coupled)
+    assert 'Zdiff' in ov.describe(coupled[0])
     pwr = Plan(text.replace('"D_N"', '"Net-(#PWR01-PWR)"'), '', classes={})
     assert pwr.disabled == ['Net-(#PWR01-PWR)'] and pwr.signal == ['D_P']
     list(pwr.map_steps(nets=['D_P', 'Net-(#PWR01-PWR)']))
     assert {e['net'] for e in pwr.lines['elements']} == {'D_P'}
+
+
+def test_map_by_the_field_solver_and_its_cache(lowpass, tmp_path):
+    """Every section by the field solver on request, in the worker processes too; the formulas' map and this one kept
+    apart in the cache; each section can be solved and drawn from what the map holds."""
+    from kicad2ems_ipc.model import Plan
+    from kicad2ems.api.frontend import sections
+    text, path, cache = _text(lowpass), lowpass, str(tmp_path / 'map.json.gz')
+    plain, field, two = Plan(text, path), Plan(text, path), Plan(text, path)
+    list(plain.map_steps(jobs=1, cache=cache))
+    list(field.map_steps(jobs=1, cache=cache, field=True))
+    list(two.map_steps(jobs=2, field=True))
+    traces = [e for e in field.lines['elements'] if e['kind'] == 'trace' and e['z0']]
+    assert traces and all(e['source'] == 'cut' for e in traces) and _key(field) == _key(two)
+    assert {e['source'] for e in plain.lines['elements'] if e['kind'] == 'trace' and e['z0']} <= {'formula', 'cpwg'}
+    again = Plan(text, path)
+    assert list(again.map_steps(jobs=1, cache=cache, field=True))[0][0] == len(again.signal) and _key(again) == _key(field)
+    e = traces[0]
+    assert sections.solve(e, 'cut').z0 == pytest.approx(e['z0'], rel=1e-6)
 
 
 def _key(p):

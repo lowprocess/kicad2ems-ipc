@@ -10,13 +10,13 @@ import os, sys
 
 from PySide6.QtCore import Qt, QThread, Signal, QTimer, QProcess, QUrl
 from PySide6.QtGui import QColor, QIcon, QDesktopServices, QLinearGradient, QBrush, QPainter
-from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QLabel,
+from PySide6.QtWidgets import (QApplication, QDialog, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QLabel,
                                QPushButton, QCheckBox, QDoubleSpinBox, QComboBox, QListWidget, QListWidgetItem,
                                QProgressBar, QSplitter, QScrollArea, QMessageBox, QFormLayout, QTabWidget,
                                QTableWidget, QTableWidgetItem, QHeaderView)
 import pyqtgraph as pg
 
-from kicad2ems_gui.api import PlanView
+from kicad2ems_gui.api import PlanView, SectionView
 from . import model as md
 
 
@@ -37,10 +37,10 @@ class Loader(QThread):
     progress = Signal(object, object)       # the group's nets, its map sections
     failed = Signal(str)
 
-    def __init__(self, text, path, plan=None, nets=None, classes=None, cache=None):
+    def __init__(self, text, path, plan=None, nets=None, classes=None, cache=None, field=False):
         super().__init__()
         self.text, self.path, self.plan, self.nets, self.classes = text, path, plan, nets, classes
-        self.cache, self._stop = cache, False
+        self.cache, self.field, self._stop = cache, field, False
 
     def stop(self):
         self._stop = True
@@ -58,7 +58,7 @@ class Loader(QThread):
             return
         try:
             n = 0
-            for _, _, chunk in plan.map_steps(nets=self.nets, stop=lambda: self._stop, cache=self.cache):
+            for _, _, chunk in plan.map_steps(nets=self.nets, stop=lambda: self._stop, cache=self.cache, field=self.field):
                 new = plan.lines['elements'][n:]
                 n = len(plan.lines['elements'])
                 self.progress.emit(list(chunk), list(new))
@@ -238,6 +238,7 @@ class Window(QMainWindow):
             self.setWindowIcon(QIcon(icon))
         split = QSplitter()
         self.view = PluginPlan()
+        self.section_picked, self.section_dlg, self.section_view = None, None, None
         self.view.selected.connect(self._section_clicked)
         self.view.clicked_at.connect(self._tool_click)
         self.results = Results()
@@ -291,10 +292,22 @@ class Window(QMainWindow):
         self.legend = Legend()
         v.addWidget(self.legend)
         self.map_lab = QLabel('Traces coloured by their impedance against their net class\'s target (50 ohm SE '
-                              'without one): hover one to read it, click it to select its track in KiCad')
+                              'without one), with the copper\'s thickness on pairs and grounded CPW: hover one to read '
+                              'it, click it to select its track in KiCad')
         self.map_lab.setWordWrap(True)
         self.map_lab.setStyleSheet('color: #555')
         v.addWidget(self.map_lab)
+        row = QHBoxLayout()
+        self.field_on = QCheckBox('Every section by the field solver')
+        self.field_on.setToolTip("Each trace from the board's copper cut across it, rather than the formulas: what is "
+                                 "beside it and any holes in its planes count. Slower (about 5 x); kept like the map")
+        self.field_on.toggled.connect(self._field_toggled)
+        row.addWidget(self.field_on, 1)
+        b = QPushButton('Field across it…')
+        b.setToolTip('The field across the section last clicked on the map')
+        b.clicked.connect(self._open_section)
+        row.addWidget(b)
+        v.addLayout(row)
         row = QHBoxLayout()
         row.addWidget(QLabel('Show'))
         self.scope = QComboBox()
@@ -568,12 +581,34 @@ class Window(QMainWindow):
             if busy:
                 self.loader.stop()
                 self.loader.wait()
-            self.loader = Loader(None, None, plan=self.plan, nets=missing, cache=self._cache_path())
+            self.loader = Loader(None, None, plan=self.plan, nets=missing, cache=self._cache_path(),
+                                 field=self.session.lines_field)
             self.loader.progress.connect(self._mapped)
             self.loader.finished.connect(self._map_done)
             self.loader.failed.connect(lambda msg: self.map_lab.setText(msg))
             self.loader.start()
         self._show_map()
+
+    def _field_toggled(self, on):
+        """The map from the field solver, or back: every net again (from the cache where it has them)."""
+        self.session.lines_field = bool(on)
+        if self.loader is not None and self.loader.isRunning():
+            self.loader.stop()
+            self.loader.wait()
+        self.mapped.clear()
+        self.store.clear()
+        self._filter_changed()
+
+    def _open_section(self):
+        if self.section_dlg is None:
+            self.section_dlg = QDialog(self)
+            self.section_dlg.setWindowTitle('The field across the section')
+            self.section_dlg.resize(900, 560)
+            self.section_view = SectionView()
+            QVBoxLayout(self.section_dlg).addWidget(self.section_view)
+        self.section_view.show_section(self.section_picked)
+        self.section_dlg.show()
+        self.section_dlg.raise_()
 
     def _cache_path(self):
         """The map kept between sessions (model.MapCache), beside the board's session."""
@@ -754,9 +789,13 @@ class Window(QMainWindow):
             self.port_list.addItem(it)
 
     def _section_clicked(self, i):
-        if i is None or self.plan is None or self.live is None:
+        if i is None or self.plan is None:
             return
-        e = self.lines['elements'][i]
+        e = self.section_picked = self.lines['elements'][i]
+        if self.section_dlg is not None and self.section_dlg.isVisible():
+            self.section_view.show_section(e)
+        if self.live is None:
+            return
         layer, net, a, b = self.plan.section_track(e)
         try:
             found = self.live.show_track(layer, net, a, b)
@@ -771,6 +810,9 @@ class Window(QMainWindow):
         s = self.session
         self.region_lab.setText('the whole board' if not s.region else
                                 f"x {s.region[0]:g} .. {s.region[2]:g}, y {s.region[1]:g} .. {s.region[3]:g} mm (KiCad)")
+        self.field_on.blockSignals(True)
+        self.field_on.setChecked(bool(s.lines_field))
+        self.field_on.blockSignals(False)
         for w, v in ((self.cut, bool(s.cut_ports)), (self.fmin, s.fmin), (self.fmax, s.fmax), (self.margin, s.margin)):
             w.blockSignals(True)
             (w.setChecked if isinstance(w, QCheckBox) else w.setValue)(v)

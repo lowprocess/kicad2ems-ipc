@@ -20,7 +20,7 @@ import gzip, hashlib, json, os, pickle, re
 import numpy as np
 from shapely.geometry import Point, LineString
 
-CACHE_VERSION = 1           # of the line model's map sections: a change of the model clears the cache
+CACHE_VERSION = 2           # of the line model's map sections: a change of the model clears the cache
 NET_MARGIN = 2.0            # mm of board kept around the nets of a net run (the planes and ground beside them)
 MAX_EXTEND = 16             # nets a net run takes in through series parts, at most
 PAIR_GAP = 3.0              # mm: open ends of a pair's legs closer than this make one differential port
@@ -90,7 +90,7 @@ class Plan:
         z0 = [e['z0'] for e in out if e['z0']]
         self.lines['z0_range'] = [min(z0), max(z0)] if z0 else None
 
-    def map_steps(self, nets=None, stop=lambda: False, jobs=None, cache=None):
+    def map_steps(self, nets=None, stop=lambda: False, jobs=None, cache=None, field=False):
         """Build the impedance map of `nets` (default: every signal net; #PWR nets never); yields (nets done, nets
         in all, the nets just done) as it goes, the sections in self.lines. The reference copper excludes every
         signal net, so a trace is referenced to the planes and grounds, never to its neighbours.
@@ -98,13 +98,14 @@ class Plan:
         Nets the cache (a file: MapCache) holds for this copper come first, at once. The rest are mapped a unit at
         a time (a net, or a pair's two legs: only a pair couples, so the map does not depend on how nets are
         grouped), over `jobs` worker processes (default: one per performance core; 1: here, in this process).
-        A unit at a time was also the fastest: 4.9 s for KiCad's CM5 demo, against 5.8 s in groups of 24 nets."""
+        A unit at a time was also the fastest: 4.9 s for KiCad's CM5 demo, against 5.8 s in groups of 24 nets.
+        field: every section by the field solver on the board's cut across it, not the formulas (slower)."""
         from kicad2ems.api.frontend import RefCopper
         nets = [n for n in (self.signal if nets is None else nets) if not self.nc.disabled(n)]
         refcu = RefCopper(self.m, set(self.signal) | set(self.disabled))
         self.lines['elements'] = []
         units = self._units(nets)
-        store = MapCache(cache, self, refcu) if cache else None
+        store = MapCache(cache, self, refcu, field) if cache else None
         done = 0
         todo = []
         for u in units:
@@ -117,7 +118,7 @@ class Plan:
         if done:
             yield done, len(nets), [n for u in units if u not in todo for n in u]
         try:
-            for unit, els in _run_groups(self.m, refcu, todo, jobs, stop):
+            for unit, els in _run_groups(self.m, refcu, todo, jobs, stop, field):
                 self._finish(els)
                 if store:
                     store.put(unit, els)
@@ -418,9 +419,9 @@ def _drawing(m, lm):
     return lm.drawing(m.cu_z)['elements']
 
 
-def _map_group(m, refcu, chunk):
+def _map_group(m, refcu, chunk, field=False):
     from kicad2ems.api.frontend import build_lines
-    return _drawing(m, build_lines(m, nets=chunk, refcu=refcu))
+    return _drawing(m, build_lines(m, nets=chunk, refcu=refcu, field=field))
 
 
 _WORK = None                # a worker process's board and reference copper
@@ -431,8 +432,8 @@ def _worker_init(blob):
     _WORK = pickle.loads(blob)
 
 
-def _worker_map(chunk):
-    return chunk, _map_group(*_WORK, chunk)
+def _worker_map(chunk, field=False):
+    return chunk, _map_group(*_WORK, chunk, field)
 
 
 def _jobs():
@@ -441,7 +442,7 @@ def _jobs():
     return core_threads()
 
 
-def _run_groups(m, refcu, groups, jobs, stop):
+def _run_groups(m, refcu, groups, jobs, stop, field=False):
     """(group, its sections) for each group: in worker processes (each gets the board and the reference copper
     once), as they finish; here, in order, with one worker or one group."""
     jobs = jobs or _jobs()
@@ -449,7 +450,7 @@ def _run_groups(m, refcu, groups, jobs, stop):
         for g in groups:
             if stop():
                 return
-            yield g, _map_group(m, refcu, g)
+            yield g, _map_group(m, refcu, g, field)
         return
     import multiprocessing
     from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -459,7 +460,7 @@ def _run_groups(m, refcu, groups, jobs, stop):
     ex = None
     try:
         ex = ProcessPoolExecutor(min(jobs, len(groups)), mp_context=ctx, initializer=_worker_init, initargs=(blob,))
-        futs = {ex.submit(_worker_map, g): i for i, g in enumerate(groups)}
+        futs = {ex.submit(_worker_map, g, field): i for i, g in enumerate(groups)}
         for f in as_completed(futs):
             if stop():
                 return
@@ -474,7 +475,7 @@ def _run_groups(m, refcu, groups, jobs, stop):
                 continue
             if stop():
                 return
-            yield g, _map_group(m, refcu, g)
+            yield g, _map_group(m, refcu, g, field)
     finally:
         if ex is not None:
             ex.shutdown(wait=False, cancel_futures=True)
@@ -485,9 +486,9 @@ class MapCache:
     net's own copper (tracks, vias, pads, zones) and of the board's reference copper, stack and outline. An edit
     re-maps the nets it touches; a change of the planes or the stack re-maps everything. Classes and targets are
     applied afresh: they are not part of a net's sections."""
-    def __init__(self, path, plan, refcu):
+    def __init__(self, path, plan, refcu, field=False):
         import shapely
-        self.path, self.data, self.used = path, {}, {}
+        self.path, self.data, self.used, self.field = path, {}, {}, field
         m = plan.m
         h = hashlib.sha1(f"v{CACHE_VERSION}".encode())
         h.update(json.dumps(plan.board.get('stack'), sort_keys=True, default=str).encode())
@@ -516,6 +517,8 @@ class MapCache:
 
     def key(self, unit):
         h = hashlib.sha1(self.base.encode())
+        if self.field:                                          # both maps kept: switching back costs nothing
+            h.update(b'\0field\0')
         for n in sorted(unit):
             h.update(b'\0net\0' + n.encode())
             for b in sorted(self.own.get(n, [])):
@@ -548,13 +551,15 @@ class Session:
     """region (x0, y0, x1, y1 KiCad mm, or None), ports ([dict(name, spec, ...)]), cut_ports, fmin / fmax (GHz),
     solvers, classes (the net classes the map shows; None: the window's default), nets (the nets picked for a net
     run, [] for none), run_nets (those and the nets beyond their series parts: the run's nets with the grounds;
-    [] for kicad2ems's auto), margin (mm around them), saved as <project>/kicad2ems/<board>/<board>_plugin.json."""
-    KEYS = ('region', 'ports', 'cut_ports', 'fmin', 'fmax', 'solvers', 'classes', 'nets', 'run_nets', 'margin')
+    [] for kicad2ems's auto), margin (mm around them), lines_field (the map's sections by the field solver), saved as
+    <project>/kicad2ems/<board>/<board>_plugin.json."""
+    KEYS = ('region', 'ports', 'cut_ports', 'fmin', 'fmax', 'solvers', 'classes', 'nets', 'run_nets', 'margin',
+            'lines_field')
 
     def __init__(self, **kw):
         self.region, self.ports, self.cut_ports = None, [], True
         self.fmin, self.fmax, self.solvers, self.classes = 0.5, 10.0, ['auto'], None
-        self.nets, self.run_nets, self.margin = [], [], NET_MARGIN
+        self.nets, self.run_nets, self.margin, self.lines_field = [], [], NET_MARGIN, False
         for k, v in kw.items():
             if k in self.KEYS:
                 setattr(self, k, v)
