@@ -652,13 +652,6 @@ def legend(lines):
     return ref, ov.span(lines, ref), *(lines.get('z0_range') or (ref, ref))
 
 
-def z0_at(lines, x, y, layer, tol):
-    """The map section under a point (model mm) and its description, or (None, '')."""
-    from kicad2ems.api.frontend import overlay as ov
-    i = ov.nearest(lines['elements'], x, y, tol, layer=layer)
-    return (i, ov.describe(lines['elements'][i])) if i is not None else (None, '')
-
-
 
 # ---- results: the run's S-parameters, each solver against the line model ------------------------------------------
 def results(out_dir, stem):
