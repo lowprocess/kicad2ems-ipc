@@ -6,7 +6,7 @@
   "identifier": "com.github.lowprocess.kicad2ems",
   "type": "plugin",
   "author": {
-    "name": "kicad2ems",
+    "name": "Claude, lowprocess",
     "contact": {
       "web": "https://github.com/lowprocess/kicad2ems-ipc"
     }
