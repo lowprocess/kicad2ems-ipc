@@ -1,7 +1,7 @@
 # What KiCad installs into the plugin's own Python environment. kicad2ems, kicad2ems-gui (the plan view, and the
 # window it opens), kicad2ems-fdtd (the FDTD solvers' kicad2ems plugin) and gfdtd (the FDTD engine it offers) are
 # not on PyPI: archives of their repositories (no git needed), pinned to the commits this plugin was tested with.
-# emsdev (the machine's GPUs, threads and memory) comes with kicad2ems and gfdtd, from its main branch's archive.
+# emsdev (the machine's GPUs, threads and memory) comes with kicad2ems and gfdtd, pinned by its release tag.
 kicad-python>=0.5
 PySide6-Essentials>=6.5
 pyqtgraph>=0.13
