@@ -498,3 +498,75 @@ def test_window_offscreen(tmp_path):
     w.results.show_results(md.results(str(tmp_path), 'x'), 'test')
     assert w.results.table.rowCount() == 3 and len(w.results.plot.listDataItems()) == 6
     w.close()
+
+
+def test_what_goes_back_on_the_board(plan):
+    """R-E26: the region's outline, each port's cross and name, and markers at the sections furthest from their
+    class's target, in KiCad mm; drawn on a user layer in one commit that KiCad's undo takes back."""
+    from kicad2ems_ipc import model as md
+    from kicad2ems_ipc.ipc import draw
+    s = md.Session(region=(10.0, 20.0, 30.0, 40.0), ports=[dict(name='P1', x=12.0, y=21.0)])
+    els = [dict(z0=62.0, target=50.0, pts=[[1.0, -2.0], [3.0, -2.0]], kind='trace'),
+           dict(z0=51.0, target=50.0, pts=[[0.0, 0.0], [1.0, 0.0]], kind='trace'),       # 2 %: no marker
+           dict(z0=70.0, target=50.0, pts=[[5.0, -5.0]], kind='coupling')]               # a coupling: none
+    items = md.board_marks(s, els)
+    lines = [i for i in items if i[0] == 'line']
+    texts = [i[2] for i in items if i[0] == 'text']
+    assert len(lines) == 4 + 2 and texts == ['kicad2ems region', 'P1', 'Z0 62 (50)']
+    assert ('text', (2.0, 2.0), 'Z0 62 (50)', 0.6) in items                       # model y up -> KiCad y down
+
+    class Board:
+        def __init__(self):
+            self.made, self.log = [], []
+
+        def begin_commit(self):
+            self.log.append('begin')
+            return 'c'
+
+        def create_items(self, xs):
+            self.made += list(xs)
+
+        def push_commit(self, c, message=''):
+            self.log.append(('push', c, message))
+
+        def drop_commit(self, c):
+            self.log.append(('drop', c))
+    b = Board()
+    assert draw(b, items, 'User.9') == len(items) and len(b.made) == len(items)
+    assert b.log == ['begin', ('push', 'c', 'kicad2ems')]
+    seg = b.made[0]
+    assert (seg.start.x, seg.start.y, seg.end.x) == (10_000_000, 20_000_000, 30_000_000)
+    assert draw(b, [], 'User.9') == 0 and len(b.log) == 2                        # nothing: no commit
+
+
+def test_the_window_reads_the_board_again_when_it_changed(monkeypatch):
+    from kicad2ems_ipc.ipc import Live
+
+    class B:
+        text = 'a'
+
+        def get_as_string(self):
+            return self.text
+    live = Live.__new__(Live)
+    live.board = B()
+    assert live.board_text() == 'a' and not live.changed()
+    live.board.text = 'b'
+    assert live.changed()
+
+
+def test_the_gpu_is_offered_only_without_slangpy_and_with_a_gpu(monkeypatch):
+    import builtins
+    from kicad2ems_ipc import model as md
+    real = builtins.__import__
+
+    def no_slangpy(name, *a, **k):
+        if name == 'slangpy':
+            raise ImportError(name)
+        return real(name, *a, **k)
+    monkeypatch.setattr(builtins, '__import__', no_slangpy)
+    from types import SimpleNamespace
+    import emsdev.vulkan as vk
+    monkeypatch.setattr(vk, 'adapters', lambda: [SimpleNamespace(kind='discrete')])
+    assert md.gpu_offer() == 'slangpy>=0.43'
+    monkeypatch.setattr(vk, 'adapters', lambda: [SimpleNamespace(kind='integrated')])
+    assert md.gpu_offer() is None

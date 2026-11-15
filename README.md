@@ -53,9 +53,12 @@ point with the Python that ran `install` and builds no environment: for working 
 you have installed already (with openEMS, mom25d's compiled core or a GPU wheel). That Python needs
 `pip install -r plugin/requirements.txt`.
 
-**Solvers.** The environment KiCad builds has the line model and gfdtd (on the CPU). mom25d and openEMS are not in
-it (mom25d's mesher has no wheel for every Python, and openEMS is not on PyPI): install the plugin with `--exec`
-from a Python that has them, or install them into the plugin's environment
+**Solvers.** The environment KiCad builds has the line model and gfdtd, on the CPU in numpy (about 15× slower than
+its GPU). Where the machine has a Vulkan GPU, **Use the GPU for gfdtd** installs slangpy (a 40-90 MB download) into
+that environment and gfdtd runs on the GPU from the next run; it is offered, not required, as slangpy's wheels are
+for Linux with glibc 2.34 and later, Windows and Apple-silicon macOS only. mom25d and openEMS are not in it
+(mom25d's mesher has no wheel for every Python, and openEMS is not on PyPI): install the plugin with `--exec` from a
+Python that has them, or install them into the plugin's environment
 (`<KiCad's cache folder>/python-environments/org.kicad2ems.plugin`).
 
 | File | |
@@ -77,7 +80,12 @@ from a Python that has them, or install them into the plugin's environment
 5. Set the band and the solver, and **Run** (on the board as KiCad has it at that moment), or **Open in
    kicad2ems** for every setting, the plots and the field views.
 
-**Reload from KiCad** reads the board again after edits. The region, ports, band and solver are kept per board.
+**Reload from KiCad** reads the board again after edits; the window also does it by itself when it comes to the
+front after the board changed in KiCad. The region, ports, band and solver are kept per board.
+
+**Put on the board** draws the region, the ports (a cross and the name) and a marker with Z0 and its target at the
+12 traces furthest from their class's impedance on a user layer (User.9 by default), in one step KiCad's undo takes
+back.
 
 ### Simulating nets
 

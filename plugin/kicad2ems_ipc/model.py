@@ -645,6 +645,49 @@ def write_config(values, path):
     return path
 
 
+def gpu_offer():
+    """'slangpy>=0.43' where gfdtd could run on a Vulkan GPU here but slangpy is not installed (the plugin's own
+    environment has gfdtd on the CPU, ~15x slower: R-C16), else None. slangpy has wheels for Linux (glibc 2.34
+    and later), Windows and Apple-silicon macOS, so it is offered, not required."""
+    try:
+        import slangpy  # noqa: F401
+        return None
+    except ImportError:
+        pass
+    try:
+        from emsdev import vulkan
+        return 'slangpy>=0.43' if any(a.kind == 'discrete' for a in vulkan.adapters()) else None
+    except Exception:                                               # noqa: BLE001  (no Vulkan loader: nothing to offer)
+        return None
+
+
+def board_marks(session, elements, worst=12, off=0.10, size=0.6):
+    """What "Put on the board" draws (R-E26), in KiCad mm: [('line', (x0, y0), (x1, y1)) | ('text', (x, y), text,
+    size)]: the region's outline, each port as a cross and its name, and a marker at the `worst` map sections whose
+    Z0 is more than `off` from their class's target (Z0 and the target, at the section's middle)."""
+    out = []
+    if session.region:
+        x0, y0, x1, y1 = session.region
+        for a, b in (((x0, y0), (x1, y0)), ((x1, y0), (x1, y1)), ((x1, y1), (x0, y1)), ((x0, y1), (x0, y0))):
+            out.append(('line', a, b))
+        out.append(('text', (x0, y0 - size), 'kicad2ems region', size))
+    for q in session.ports or []:
+        x, y, r = float(q['x']), float(q['y']), 0.5
+        out += [('line', (x - r, y - r), (x + r, y + r)), ('line', (x - r, y + r), (x + r, y - r)),
+                ('text', (x, y - r - size), q['name'], size)]
+    bad = []
+    for e in elements or []:
+        z, t = e.get('z0'), e.get('target')
+        if z and t and abs(z - t) / t > off and e.get('pts') and e.get('kind') != 'coupling':
+            bad.append((abs(z - t) / t, e))
+    for _, e in sorted(bad, key=lambda b: -b[0])[:worst]:
+        pts = e['pts']
+        mx, my = pts[len(pts) // 2] if len(pts) % 2 else (
+            (pts[len(pts) // 2 - 1][0] + pts[len(pts) // 2][0]) / 2, (pts[len(pts) // 2 - 1][1] + pts[len(pts) // 2][1]) / 2)
+        out.append(('text', (float(mx), -float(my)), f"Z0 {e['z0']:.0f} ({e['target']:.0f})", size))
+    return out
+
+
 def legend(lines):
     """(reference ohm, half span ohm, low, high) of the map's colours."""
     from kicad2ems.api.frontend import overlay as ov

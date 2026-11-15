@@ -51,7 +51,8 @@ class Live:
         self.board = self.kicad.get_board()
 
     def board_text(self):
-        return self.board.get_as_string()
+        self._text = self.board.get_as_string()
+        return self._text
 
     def project_dir(self):
         try:
@@ -102,6 +103,17 @@ class Live:
         return out
 
     # ---- showing things in KiCad ----
+    def put_on_board(self, items, layer='User.9'):
+        """The region, ports and worst sections (model.board_marks) drawn on `layer` in one undoable commit."""
+        return draw(self.board, items, layer)
+
+    def changed(self):
+        """Whether the board in KiCad differs from the text last read (board_text), its edits unsaved included."""
+        try:
+            return self.board.get_as_string() != getattr(self, '_text', None)
+        except Exception:                                           # KiCad went away: nothing to reload from
+            return False
+
     def show_track(self, layer, net, a, b):
         """Select (in KiCad) the track of `net` on `layer` that the segment a - b (KiCad mm) lies on; True when
         one was found."""
@@ -119,6 +131,39 @@ class Live:
         self.board.clear_selection()
         self.board.add_to_selection([best[1]])
         return True
+
+
+def draw(board, items, layer='User.9', width=0.1, message='kicad2ems'):
+    """`items` (model.board_marks: lines and texts, KiCad mm) on a user layer of the open board, in one commit: KiCad's
+    undo takes them back. Returns how many were made (R-E26)."""
+    from kipy import board_types as bt
+    from kipy.geometry import Vector2
+    from kipy.util.board_layer import layer_from_canonical_name
+    lay = layer_from_canonical_name(layer)
+    nm = lambda v: int(round(v / NM))
+    made = []
+    for it in items:
+        if it[0] == 'line':
+            s = bt.BoardSegment()
+            s.start, s.end = Vector2.from_xy(nm(it[1][0]), nm(it[1][1])), Vector2.from_xy(nm(it[2][0]), nm(it[2][1]))
+            s.layer = lay
+            s.attributes.stroke.width = nm(width)
+            made.append(s)
+        elif it[0] == 'text':
+            t = bt.BoardText()
+            t.value, t.position, t.layer = it[2], Vector2.from_xy(nm(it[1][0]), nm(it[1][1])), lay
+            t.attributes.size = Vector2.from_xy(nm(it[3]), nm(it[3]))
+            made.append(t)
+    if not made:
+        return 0
+    commit = board.begin_commit()
+    try:
+        board.create_items(made)
+    except Exception:
+        board.drop_commit(commit)
+        raise
+    board.push_commit(commit, message)
+    return len(made)
 
 
 def _seg_dist(p, a, b):

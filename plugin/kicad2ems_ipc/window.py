@@ -8,7 +8,7 @@ against the line model's, or the same set-up opened in kicad2ems's GUI.
 """
 import os, sys
 
-from PySide6.QtCore import Qt, QThread, Signal, QTimer, QProcess, QUrl
+from PySide6.QtCore import Qt, QThread, Signal, QTimer, QProcess, QUrl, QEvent
 from PySide6.QtGui import QColor, QIcon, QDesktopServices, QLinearGradient, QBrush, QPainter
 from PySide6.QtWidgets import (QApplication, QDialog, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QLabel,
                                QPushButton, QCheckBox, QDoubleSpinBox, QComboBox, QListWidget, QListWidgetItem,
@@ -233,7 +233,7 @@ class Window(QMainWindow):
                           relative=True)
         self.store, self.mapped = {}, set()             # map sections per net, the nets mapped so far
         self.setWindowTitle('kicad2ems for KiCad')
-        icon = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'gui', 'kicad2ems.svg')
+        icon = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'icon-48.png')
         if os.path.exists(icon):
             self.setWindowIcon(QIcon(icon))
         split = QSplitter()
@@ -278,10 +278,67 @@ class Window(QMainWindow):
         self.board_lab.setWordWrap(True)
         v.addWidget(self.board_lab)
         b = QPushButton('Reload from KiCad')
-        b.setToolTip('Read the board again as KiCad has it now (unsaved edits included)')
+        b.setToolTip('Read the board again as KiCad has it now (unsaved edits included). It is read again by itself '
+                     'when this window comes to the front after the board was edited')
         b.clicked.connect(self.reload)
         v.addWidget(b)
+        h = QHBoxLayout()
+        self.put_btn = QPushButton('Put on the board')
+        self.put_btn.setToolTip("Draw the region, the ports (a cross and the name) and markers at the traces furthest "
+                                "from their class's impedance on a user layer of the board, in one step KiCad's undo "
+                                "takes back")
+        self.put_btn.clicked.connect(self.put_on_board)
+        self.put_layer = QComboBox()
+        self.put_layer.addItems([f'User.{k}' for k in range(1, 10)] + ['Cmts.User', 'Dwgs.User'])
+        self.put_layer.setCurrentText('User.9')
+        h.addWidget(self.put_btn)
+        h.addWidget(self.put_layer)
+        v.addLayout(h)
+        self.gpu_btn = QPushButton('Use the GPU for gfdtd')
+        self.gpu_btn.setToolTip("Install slangpy (gfdtd's Vulkan runtime, a download of 40-90 MB) into the plugin's "
+                                "Python: gfdtd runs on the GPU instead of numpy on the CPU")
+        self.gpu_btn.clicked.connect(self.install_gpu)
+        self.gpu_btn.setVisible(md.gpu_offer() is not None)
+        v.addWidget(self.gpu_btn)
         return g
+
+    def put_on_board(self):
+        """R-E26: the session's region and ports and the map's worst sections, drawn in KiCad."""
+        if self.live is None:
+            return
+        els = [e for es in self.store.values() for e in es]
+        items = md.board_marks(self.session, els)
+        if not items:
+            self.statusBar().showMessage('Nothing to put on the board: no region, ports or map yet', 6000)
+            return
+        layer = self.put_layer.currentText()
+        try:
+            n = self.live.put_on_board(items, layer)
+        except Exception as e:                                      # an older KiCad, the API refusing
+            self.statusBar().showMessage(f"KiCad did not take them: {type(e).__name__}: {e}", 10000)
+            return
+        self.statusBar().showMessage(f"{n} items on {layer} (Edit > Undo in KiCad takes them back)", 8000)
+
+    def install_gpu(self):
+        """slangpy into this Python (pip), in a process of its own, the button gone once it is there."""
+        what = md.gpu_offer()
+        if what is None:
+            self.gpu_btn.setVisible(False)
+            return
+        self.gpu_btn.setEnabled(False)
+        self.statusBar().showMessage(f"installing {what} ...")
+        self.gpu_proc = QProcess(self)
+        self.gpu_proc.finished.connect(self._gpu_installed)
+        self.gpu_proc.start(sys.executable, ['-m', 'pip', 'install', what])
+
+    def _gpu_installed(self, code, _status):
+        out = bytes(self.gpu_proc.readAllStandardError()).decode(errors='replace').strip().splitlines()
+        if code == 0:
+            self.gpu_btn.setVisible(False)
+            self.statusBar().showMessage('slangpy installed: gfdtd runs on the GPU from the next run', 10000)
+        else:
+            self.gpu_btn.setEnabled(True)
+            self.statusBar().showMessage(f"slangpy did not install: {out[-1] if out else code}", 15000)
 
     def _map_box(self):
         g = QGroupBox('Impedance map')
@@ -912,6 +969,18 @@ class Window(QMainWindow):
     def _open_report(self):
         if self.report:
             QDesktopServices.openUrl(QUrl.fromLocalFile(self.report))
+
+    def event(self, ev):
+        """R-E26: brought to the front after the board was edited in KiCad, the board is read again."""
+        if ev.type() == QEvent.Type.WindowActivate and self.live is not None and self.text is not None and \
+                self.proc is None and (self.loader is None or not self.loader.isRunning()):
+            QTimer.singleShot(0, self._reload_if_changed)
+        return super().event(ev)
+
+    def _reload_if_changed(self):
+        if self.live is not None and self.live.changed():
+            self.statusBar().showMessage('The board changed in KiCad: read again', 6000)
+            self.reload()
 
     def closeEvent(self, ev):
         if self.loader is not None:
