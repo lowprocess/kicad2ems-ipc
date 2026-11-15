@@ -570,3 +570,28 @@ def test_the_gpu_is_offered_only_without_slangpy_and_with_a_gpu(monkeypatch):
     assert md.gpu_offer() == 'slangpy>=0.43'
     monkeypatch.setattr(vk, 'adapters', lambda: [SimpleNamespace(kind='integrated')])
     assert md.gpu_offer() is None
+
+
+@pytest.mark.skipif(not os.path.exists('/usr/share/kicad/schemas/pcm.v2.schema.json'), reason="KiCad's PCM schema")
+def test_the_plugin_managers_package_is_valid(tmp_path, monkeypatch):
+    """R-C16: the zip's metadata and the index entry build_pcm.py writes, against KiCad's PCM schema (a tag with a
+    space in it had made both invalid)."""
+    jsonschema = pytest.importorskip('jsonschema')
+    import zipfile
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    sys.path.insert(0, os.path.join(root, 'tools'))
+    import build_pcm
+    monkeypatch.setattr(build_pcm, 'ROOT', str(tmp_path / 'r'))
+    import shutil
+    for d in ('pcm', 'plugin'):
+        shutil.copytree(os.path.join(root, d), str(tmp_path / 'r' / d), ignore=shutil.ignore_patterns('__pycache__'))
+    monkeypatch.setattr(build_pcm, 'PLUGIN', str(tmp_path / 'r' / 'plugin'))
+    build_pcm.main([])
+    with open('/usr/share/kicad/schemas/pcm.v2.schema.json') as fh:
+        schema = json.load(fh)
+    dist = tmp_path / 'r' / 'dist'
+    (zipped,) = dist.glob('*-pcm.zip')
+    jsonschema.validate(json.loads(zipfile.ZipFile(zipped).read('metadata.json')), schema)
+    entry = json.loads((dist / 'metadata.json').read_text())
+    jsonschema.validate(entry, schema)
+    assert entry['versions'][0]['version'] != 'VERSION'

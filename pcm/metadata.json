@@ -15,7 +15,7 @@
   "resources": {
     "homepage": "https://github.com/lowprocess/kicad2ems-ipc"
   },
-  "tags": ["simulation", "impedance", "rf", "signal integrity"],
+  "tags": ["simulation", "impedance", "rf", "signal-integrity"],
   "versions": [
     {
       "version": "VERSION",
