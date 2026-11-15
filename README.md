@@ -87,6 +87,14 @@ front after the board changed in KiCad. The region, ports, band and solver are k
 12 traces furthest from their class's impedance on a user layer (User.9 by default), in one step KiCad's undo takes
 back.
 
+**Power: DC drop, temperature** runs pcbqs's analyses of the board as KiCad has it (through kicad2ems: the same
+runs as the window's): pick the rail and its voltage, give the loads' currents (`U3=1.2, U7=0.4`; empty: the parts'
+`pdn.load` fields) or, for the temperature, the parts' losses in W, and press **DC drop** or **Temperature**. A
+setting still missing is said (**Open in kicad2ems** has every one). **Map on the board** then draws the chosen map
+of the result (a layer's drop or rise, a layer's temperature) as six bands of filled polygons, each band on its own
+user layer (User.1 ... User.6: KiCad colours a layer, not an item) with a legend of their ranges on User.8, in one
+step KiCad's undo takes back.
+
 ### Simulating nets
 
 1. Pick the nets: **From KiCad selection** takes the nets of what is selected in KiCad; **Pick** adds the net of

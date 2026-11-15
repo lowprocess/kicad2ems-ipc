@@ -595,3 +595,62 @@ def test_the_plugin_managers_package_is_valid(tmp_path, monkeypatch):
     entry = json.loads((dist / 'metadata.json').read_text())
     jsonschema.validate(entry, schema)
     assert entry['versions'][0]['version'] != 'VERSION'
+
+
+def _plane_map(folder, name='dump_V_drop_F_Cu_fd', label='drop F.Cu', unit='mV'):
+    """A result's plane map as pcbqs's viewer writes it: a grid, the value 0 off the copper."""
+    import json
+    from kicad2ems.fields.frames import write_npz
+    x, y = np.linspace(0, 10, 41), np.linspace(-6, 0, 25)
+    X, Y = np.meshgrid(x, y, indexing='ij')
+    v = np.where((X > 1) & (X < 9) & (Y > -5) & (Y < -1), 3.0 * X, 0.0)        # a drop growing along x, on the copper
+    data = np.zeros((1, len(x), len(y), 1, 3), complex)
+    data[0, :, :, 0, 0] = v
+    os.makedirs(folder, exist_ok=True)
+    write_npz(os.path.join(folder, name + '.npz'), dict(x=x, y=y, z=np.array([0.035])), [0.0], data)
+    with open(os.path.join(folder, 'dump_info.json'), 'w') as fh:
+        json.dump(dict(dumps=[dict(name=name, field='V', label=label, unit=unit),
+                              dict(name='dump_J_F_Cu_fd', field='J', label='F.Cu', unit='A/mm')]), fh)
+
+
+def test_a_results_maps_as_bands_on_the_board(tmp_path):
+    """R-E26: a result's plane maps (a DC drop's, a temperature's), one contoured into bands, each band's polygons
+    on its own user layer with a legend, in KiCad's coordinates (y down)."""
+    from kicad2ems_ipc import model as md
+    _plane_map(str(tmp_path / 'pdn' / 'exc_power'))
+    src = md.map_sources(str(tmp_path))
+    assert [(lab, unit) for lab, _, unit in src] == [('drop F.Cu', 'mV')]           # (the current densities left out)
+    levels, polys = md.map_bands(src[0][1], bands=4)
+    assert len(levels) == 5 and levels[0] == pytest.approx(3.0 * 1.25, abs=1.0) and levels[-1] == pytest.approx(26.25, abs=1)
+    assert {k for k, _, _ in polys} == {0, 1, 2, 3}
+    assert all(1 <= y <= 5 for _, outer, _ in polys for _, y in outer)              # (model y -1..-5: KiCad 1..5)
+    items = md.map_marks(levels, polys, 'drop F.Cu', 'mV', 12.0, -1.0)
+    layers = [it[1] for it in items if it[0] == 'poly']
+    assert set(layers) == {'User.1', 'User.2', 'User.3', 'User.4'}
+    texts = [it for it in items if it[0] == 'text']
+    assert texts[0][2] == 'kicad2ems: drop F.Cu (mV)' and len(texts) == 5 and all(t[4] == 'User.8' for t in texts)
+
+
+def test_the_power_analyses_through_kicad2ems_s_registry(tmp_path):
+    """R-E26: pcbqs's DC drop as kicad2ems runs it (its command line from the analysis registry); one missing a
+    setting says what (the window's form has the rest)."""
+    from kicad2ems_ipc import model as md
+    pcbqs = pytest.importorskip('pcbqs')
+    buck = os.path.join(os.path.dirname(pcbqs.__file__), 'circuit', 'examples', '04_buck.kicad_pcb')
+    argv, missing = md.analysis_command('pdn', dict(rail='out', volts=5.0, no_pdn=True), buck, str(tmp_path))
+    assert not missing and 'pcbqs.pdn' in ' '.join(argv) and 'out' in argv and '--no-pdn' in argv
+    argv, missing = md.analysis_command('pdn', dict(rail=''), buck, str(tmp_path))
+    assert argv is None and missing
+    assert md.analysis_command('nothing', {}, 'b', 'o') == (None, ['nothing: not installed (pip install pcbqs)'])
+
+
+def test_a_band_is_a_filled_polygon_in_kicad():
+    """R-E26: a band ('poly', layer, outer, holes, colour) as kipy's filled board polygon, its hole kept."""
+    pytest.importorskip('kipy')
+    from kipy import board_types as bt
+    from kipy.util.board_layer import layer_from_canonical_name
+    from kicad2ems_ipc.ipc import _polygon
+    p = _polygon(bt, ('poly', 'User.2', [(0, 0), (1, 0), (1, 1)], [[(0.2, 0.1), (0.5, 0.1), (0.5, 0.3)]], '#2c7bb6'),
+                 lambda v: int(round(v * 1e6)), layer_from_canonical_name)
+    assert p.layer == layer_from_canonical_name('User.2') and p.attributes.fill.filled
+    assert len(p.proto.shape.polygon.polygons) == 1 and len(p.polygons[0].holes) == 1

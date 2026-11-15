@@ -6,12 +6,12 @@ against the line model's, or the same set-up opened in kicad2ems's GUI.
 
     python plugin/kicad2ems_plugin.py        # what KiCad's toolbar button runs (install.py)
 """
-import os, sys
+import os, re, sys
 
 from PySide6.QtCore import Qt, QThread, Signal, QTimer, QProcess, QUrl, QEvent
 from PySide6.QtGui import QColor, QIcon, QDesktopServices, QLinearGradient, QBrush, QPainter
 from PySide6.QtWidgets import (QApplication, QDialog, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QLabel,
-                               QPushButton, QCheckBox, QDoubleSpinBox, QComboBox, QListWidget, QListWidgetItem,
+                               QPushButton, QCheckBox, QDoubleSpinBox, QComboBox, QLineEdit, QListWidget, QListWidgetItem,
                                QProgressBar, QSplitter, QScrollArea, QMessageBox, QFormLayout, QTabWidget,
                                QTableWidget, QTableWidgetItem, QHeaderView)
 import pyqtgraph as pg
@@ -254,6 +254,7 @@ class Window(QMainWindow):
         lay.addWidget(self._region_box())
         lay.addWidget(self._ports_box())
         lay.addWidget(self._run_box())
+        lay.addWidget(self._power_box())
         lay.addStretch(1)
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -471,6 +472,120 @@ class Window(QMainWindow):
         self.pick_btn.toggled.connect(lambda on: self._tool('net', on))
         return g
 
+    def _power_box(self):
+        """R-E26: pcbqs's DC drop and temperature of the board (kicad2ems's analyses), and their maps drawn in KiCad
+        as bands, a user layer each."""
+        g = QGroupBox('Power: DC drop, temperature')
+        f = QFormLayout(g)
+        self.rail = QComboBox()
+        self.rail.setEditable(True)
+        self.rail.setToolTip("the rail's net (its tree grows through series parts); the loads: the parts' pdn.load "
+                             "fields")
+        f.addRow('Rail', self.rail)
+        self.volts = QDoubleSpinBox()
+        self.volts.setRange(0.1, 1000.0)
+        self.volts.setValue(3.3)
+        self.volts.setSuffix(' V')
+        f.addRow('Volts', self.volts)
+        self.loads = QLineEdit()
+        self.loads.setPlaceholderText("U3=1.2, U7=0.4 (A for the drop, W for the temperature)")
+        self.loads.setToolTip("REF=VALUE, comma-separated: for the DC drop the loads' currents in A (empty: the parts' "
+                              "own pdn.load fields); for the temperature the parts' losses in W (empty: a circuit "
+                              "run's)")
+        f.addRow('Loads / losses', self.loads)
+        row = QHBoxLayout()
+        self.power_btns = []
+        for name, label in md.POWER:
+            b = QPushButton(label)
+            b.setToolTip(f"pcbqs's {label.lower()} of this board, as kicad2ems runs it (Open in kicad2ems has every "
+                         f"setting)")
+            b.clicked.connect(lambda _=False, n=name: self.run_power(n))
+            row.addWidget(b)
+            self.power_btns.append(b)
+        f.addRow(row)
+        self.maps = QComboBox()
+        self.maps.setToolTip("a map of the last result: drawn as bands on User.1 ... User.8, the legend on User.8")
+        f.addRow('Map', self.maps)
+        self.map_btn = QPushButton('Map on the board')
+        self.map_btn.clicked.connect(self.map_on_board)
+        self.map_btn.setEnabled(False)
+        f.addRow(self.map_btn)
+        self.power_lab = QLabel('')
+        self.power_lab.setWordWrap(True)
+        f.addRow(self.power_lab)
+        return g
+
+    def _list_maps(self, folder):
+        self.maps.clear()
+        for label, path, unit in md.map_sources(folder):
+            self.maps.addItem(f"{label} ({unit})", (path, label, unit))
+        self.map_btn.setEnabled(self.maps.count() > 0 and self.live is not None)
+
+    def run_power(self, name):
+        """An analysis (pdn: the DC drop; thermal) of the board as KiCad has it now, in <work>/<name>."""
+        if self.plan is None or self.folder is None:
+            return
+        board = os.path.join(self.folder, f"{self.stem}.kicad_pcb")
+        try:
+            os.makedirs(self.folder, exist_ok=True)
+            with open(board, 'w', encoding='utf-8') as fh:
+                fh.write(self.text)
+        except OSError as e:
+            QMessageBox.warning(self, 'kicad2ems', str(e))
+            return
+        values = dict(rail=self.rail.currentText().strip(), volts=float(self.volts.value()))
+        loads = [x.strip() for x in self.loads.text().split(',') if x.strip()]
+        if loads:
+            values['load' if name == 'pdn' else 'loss'] = loads
+        if name == 'pdn':
+            values['no_pdn'] = True                                 # (the drop: its map; the impedance is the window's)
+        out = os.path.join(self.folder, name)
+        argv, missing = md.analysis_command(name, values, board, out)
+        if argv is None:
+            self.power_lab.setText('Needs: ' + '; '.join(missing) + ' (Open in kicad2ems has every setting)')
+            return
+        self.power_out = out
+        self.power_proc = QProcess(self)
+        self.power_proc.setProcessChannelMode(QProcess.MergedChannels)
+        self.power_last = ''
+        def said():
+            text = bytes(self.power_proc.readAllStandardOutput()).decode(errors='replace').strip()
+            if text:
+                self.power_last = text.splitlines()[-1][:200]
+                self.power_lab.setText(self.power_last)
+        self.power_proc.readyReadStandardOutput.connect(said)
+        self.power_proc.finished.connect(self._power_done)
+        for b in self.power_btns:
+            b.setEnabled(False)
+        self.power_lab.setText(f"{name}: starting ...")
+        self.power_proc.start(argv[0], argv[1:])
+
+    def _power_done(self, code, _status):
+        for b in self.power_btns:
+            b.setEnabled(True)
+        self.power_lab.setText('done' if code == 0 else f"failed: {self.power_last or f'exit {code}'}")
+        self._list_maps(self.power_out)
+
+    def map_on_board(self):
+        """The chosen map's bands drawn on the board (one commit: KiCad's undo takes it back)."""
+        data = self.maps.currentData()
+        if self.live is None or not data:
+            return
+        path, label, unit = data
+        levels, polys = md.map_bands(path)
+        if not polys:
+            self.statusBar().showMessage('That map is empty', 6000)
+            return
+        x0, y0 = (self.plan.m.outline.bounds[2] + 3.0, -self.plan.m.outline.bounds[3]) if self.plan else (0.0, 0.0)
+        items = md.map_marks(levels, polys, label, unit, x0, y0)
+        try:
+            n = self.live.put_on_board(items, md.MAP_LAYERS[-1])
+        except Exception as e:                                      # an older KiCad, the API refusing
+            self.statusBar().showMessage(f"KiCad did not take it: {type(e).__name__}: {e}", 10000)
+            return
+        self.statusBar().showMessage(f"{label}: {n} items on {md.MAP_LAYERS[0]} ... {md.MAP_LAYERS[-1]} (Edit > Undo "
+                                     f"in KiCad takes them back)", 8000)
+
     def _run_box(self):
         g = QGroupBox('Simulation')
         f = QFormLayout(g)
@@ -566,6 +681,17 @@ class Window(QMainWindow):
         self._list_ports()
         self.picked = [n for n in self.session.nets if n in plan.signal]
         self._show_nets()
+        keep = self.rail.currentText()                              # the power box's rails: the nets but signal ones
+        self.rail.clear()
+        nets = sorted({it[1] for it in m.prims.items if it[1]} - set(m.ground_nets))
+        power = [n for n in nets if re.search(r'^\+|^V(CC|DD|IN|BAT|BUS|SYS)|^\d+V\d*$|^P\d+V', n, re.I)]
+        self.rail.addItems(power + [n for n in nets if n not in power])
+        if keep:
+            self.rail.setCurrentText(keep)
+        for name, _ in md.POWER:                                    # an earlier result's maps
+            d = os.path.join(self.folder or '', name)
+            if os.path.isdir(d):
+                self._list_maps(d)
         res = md.results(os.path.join(self.folder, 'out'), self.stem) if self.folder else None
         if res:
             self.results.show_results(res, 'the last run')

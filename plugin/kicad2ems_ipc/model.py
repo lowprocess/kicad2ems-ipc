@@ -759,3 +759,96 @@ def comparison(res, floor=-20.0):
             out.append((f"{s['label']}: {lab}", float(d[k]) if ok.any() else None, float(s['f'][k] / 1e9),
                         float(np.nanmax(np.abs(a - b)))))
     return out
+
+
+# ---- the analyses on the board: pcbqs's DC drop and temperature, their maps drawn in KiCad (R-E26) ------------------
+POWER = (('pdn', 'DC drop'), ('thermal', 'Temperature'))
+MAP_LAYERS = tuple(f'User.{k}' for k in range(1, 9))   # a band each: KiCad colours a layer, not an item
+MAP_BANDS = 6
+RAMP = ('#2c7bb6', '#00a6ca', '#00ccbc', '#90eb9d', '#f9d057', '#f29e2e', '#e76818', '#d7191c')
+
+
+def analysis_command(name, values, board, out):
+    """(argv, missing [str]) of kicad2ems's analysis `name` (pcbqs's pdn or thermal) on the board, `values` beside its
+    defaults: argv None and what it still needs where something is missing (its form in the window has the rest)."""
+    from kicad2ems.api.frontend import analyses
+    an = analyses().get(name)
+    if an is None:
+        return None, [f"{name}: not installed (pip install pcbqs)"]
+    miss = [m.get('text', str(m)) for m in (an.missing(values, board) or [])]
+    if miss:
+        return None, miss
+    return an.command(values, board, out), []
+
+
+def map_sources(folder):
+    """[(label, path, unit)] of the plane maps a result folder holds (its viewer's dumps: a DC drop's mV, a
+    temperature's C), each a scalar on a layer's grid; the current densities left out."""
+    out = []
+    for root, _dirs, files in os.walk(folder or ''):
+        if 'dump_info.json' not in files:
+            continue
+        try:
+            with open(os.path.join(root, 'dump_info.json'), encoding='utf-8') as fh:
+                info = json.load(fh)
+        except (OSError, ValueError):
+            continue
+        for d in info.get('dumps', []):
+            path = os.path.join(root, d.get('name', '') + '.npz')
+            if d.get('field') in ('V', 'T') and os.path.isfile(path):
+                out.append((d.get('label') or d['name'], path, d.get('unit', '')))
+    return sorted(out)
+
+
+def map_bands(path, bands=MAP_BANDS):
+    """(levels, [(band, outer ring, [holes])] in KiCad mm) of a plane map: its value on the copper (0 or NaN off it)
+    in `bands` equal steps between its least and most, each step's region as polygons (matplotlib's contours)."""
+    import numpy as np
+    from kicad2ems.fields.frames import read_npz
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    mesh, frames = read_npz(path)
+    v = np.real(frames[0][1][:, :, 0, 0]).astype(float)              # (nx, ny)
+    v[v == 0] = np.nan                                                # (off the copper)
+    if not np.isfinite(v).any():
+        return [], []
+    lo, hi = float(np.nanmin(v)), float(np.nanmax(v))
+    if hi <= lo:
+        hi = lo + 1e-9
+    levels = list(np.linspace(lo, hi, bands + 1))
+    fig, ax = plt.subplots()
+    cs = ax.contourf(mesh['x'], mesh['y'], v.T, levels=levels)
+    out = []
+    for k, segs in enumerate(cs.allsegs):
+        for kinds, seg in zip(cs.allkinds[k] if cs.allkinds else [None] * len(segs), segs):
+            if len(seg) < 3:
+                continue
+            rings, start = [], 0
+            if kinds is not None:                                     # (code 79: a ring closes; 1: the next starts)
+                for i, c in enumerate(kinds):
+                    if c == 79:
+                        rings.append(seg[start:i + 1])
+                        start = i + 1
+            if not rings:
+                rings = [seg]
+            rings = [[(float(x), -float(y)) for x, y in r] for r in rings if len(r) >= 3]   # (model y up: KiCad's down)
+            if rings:
+                out.append((k, rings[0], rings[1:]))
+    plt.close(fig)
+    return levels, out
+
+
+def map_marks(levels, polys, label, unit, x0, y0, layers=MAP_LAYERS, size=0.8):
+    """What "Map on the board" draws: each band's polygons on its own user layer (filled, its colour too, where
+    KiCad keeps an item's), and a legend at (x0, y0) on the last layer: [('poly', layer, outer, holes, colour) |
+    ('text', (x, y), text, size, layer)]."""
+    n = len(levels) - 1
+    lay = lambda k: layers[min(k, len(layers) - 1)]
+    out = [('poly', lay(k), outer, holes, RAMP[min(k * len(RAMP) // max(n, 1), len(RAMP) - 1)])
+           for k, outer, holes in polys]
+    out.append(('text', (x0, y0), f"kicad2ems: {label} ({unit})", size, layers[-1]))
+    for k in range(n):
+        out.append(('text', (x0, y0 + (k + 1) * 1.6 * size),
+                    f"{levels[k]:.4g} .. {levels[k + 1]:.4g} {unit}: {lay(k)}", size, layers[-1]))
+    return out

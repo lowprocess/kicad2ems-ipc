@@ -151,9 +151,12 @@ def draw(board, items, layer='User.9', width=0.1, message='kicad2ems'):
             made.append(s)
         elif it[0] == 'text':
             t = bt.BoardText()
-            t.value, t.position, t.layer = it[2], Vector2.from_xy(nm(it[1][0]), nm(it[1][1])), lay
+            tl = layer_from_canonical_name(it[4]) if len(it) > 4 else lay
+            t.value, t.position, t.layer = it[2], Vector2.from_xy(nm(it[1][0]), nm(it[1][1])), tl
             t.attributes.size = Vector2.from_xy(nm(it[3]), nm(it[3]))
             made.append(t)
+        elif it[0] == 'poly':                                       # ('poly', layer, outer, holes, colour): a map's band
+            made.append(_polygon(bt, it, nm, layer_from_canonical_name))
     if not made:
         return 0
     commit = board.begin_commit()
@@ -164,6 +167,38 @@ def draw(board, items, layer='User.9', width=0.1, message='kicad2ems'):
         raise
     board.push_commit(commit, message)
     return len(made)
+
+
+def _polygon(bt, it, nm, layer_of):
+    """A filled board polygon of ('poly', layer, outer ring, [hole rings], '#rrggbb') (KiCad mm)."""
+    from kipy.geometry import PolygonWithHoles, PolyLine, PolyLineNode, Vector2
+    def line(ring):
+        pl = PolyLine()
+        for x, y in ring:
+            pl.append(PolyLineNode.from_xy(nm(x), nm(y)))
+        pl.closed = True
+        return pl
+    pw = PolygonWithHoles()
+    pw.outline = line(it[2])
+    for h in it[3] or []:
+        pw.add_hole(line(h))
+    p = bt.BoardPolygon()
+    p.polygons.append(pw)
+    if hasattr(p, '_pack'):                                         # (kipy keeps the list beside its protobuf)
+        p._pack()
+    p.layer = layer_of(it[1])
+    p.attributes.fill.filled = True
+    if len(it) > 4 and it[4]:
+        try:                                                        # (a KiCad that keeps an item's colour shows it)
+            from kipy.common_types import Color
+            c = it[4].lstrip('#')
+            col = Color()
+            col.red, col.green, col.blue, col.alpha = (int(c[i:i + 2], 16) / 255 for i in (0, 2, 4)), 1.0
+            p.attributes.fill.color = col
+        except Exception:                                           # noqa: BLE001  (no colour in this kipy)
+            pass
+    p.attributes.stroke.width = 0
+    return p
 
 
 def _seg_dist(p, a, b):
